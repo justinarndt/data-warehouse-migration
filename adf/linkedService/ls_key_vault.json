@@ -1,0 +1,15 @@
+{
+    "name": "ls_key_vault",
+    "type": "Microsoft.DataFactory/factories/linkedservices",
+    "properties": {
+        "description": "Azure Key Vault — Centralized secret management for ADLS keys and SQL connection strings",
+        "type": "AzureKeyVault",
+        "typeProperties": {
+            "baseUrl": "https://kv-jde-secrets-dev.vault.azure.net/"
+        },
+        "annotations": [
+            "security",
+            "managed-identity"
+        ]
+    }
+}

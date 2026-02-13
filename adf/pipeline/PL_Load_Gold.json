@@ -1,0 +1,36 @@
+{
+    "name": "PL_Load_Gold",
+    "type": "Microsoft.DataFactory/factories/pipelines",
+    "properties": {
+        "description": "Gold layer loading pipeline: performs point-in-time joins between Silver transactions and the SCD2 customer dimension to load the star schema Fact_Sales table with correct surrogate keys.",
+        "activities": [
+            {
+                "name": "DF_Load_FactSales",
+                "description": "Joins Silver F4211 with Dim_Customer using point-in-time logic (OrderDate BETWEEN ValidFrom AND ValidTo) and loads into Gold.Fact_Sales",
+                "type": "ExecuteDataFlow",
+                "dependsOn": [],
+                "policy": {
+                    "timeout": "0.01:00:00",
+                    "retry": 1,
+                    "retryIntervalInSeconds": 60
+                },
+                "typeProperties": {
+                    "dataflow": {
+                        "referenceName": "DF_Load_FactSales",
+                        "type": "DataFlowReference"
+                    },
+                    "compute": {
+                        "coreCount": 8,
+                        "computeType": "General"
+                    },
+                    "traceLevel": "Fine"
+                }
+            }
+        ],
+        "annotations": [
+            "gold-layer",
+            "star-schema",
+            "fact-table-load"
+        ]
+    }
+}

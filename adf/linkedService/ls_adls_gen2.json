@@ -1,0 +1,23 @@
+{
+    "name": "ls_adls_gen2",
+    "type": "Microsoft.DataFactory/factories/linkedservices",
+    "properties": {
+        "description": "Azure Data Lake Storage Gen2 — Medallion Architecture storage (Bronze/Silver/Gold layers)",
+        "type": "AzureBlobFS",
+        "typeProperties": {
+            "url": "https://stjdemoddevus.dfs.core.windows.net",
+            "accountKey": {
+                "type": "AzureKeyVaultSecret",
+                "store": {
+                    "referenceName": "ls_key_vault",
+                    "type": "LinkedServiceReference"
+                },
+                "secretName": "adls-account-key"
+            }
+        },
+        "annotations": [
+            "medallion-architecture",
+            "jde-modernization"
+        ]
+    }
+}

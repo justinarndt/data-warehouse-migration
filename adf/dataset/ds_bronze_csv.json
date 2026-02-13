@@ -1,0 +1,38 @@
+{
+    "name": "ds_bronze_csv",
+    "type": "Microsoft.DataFactory/factories/datasets",
+    "properties": {
+        "description": "Parameterized DelimitedText dataset for raw CSV files in the Bronze landing zone",
+        "type": "DelimitedText",
+        "linkedServiceName": {
+            "referenceName": "ls_adls_gen2",
+            "type": "LinkedServiceReference"
+        },
+        "typeProperties": {
+            "location": {
+                "type": "AzureBlobFSLocation",
+                "fileName": {
+                    "value": "@dataset().FileName",
+                    "type": "Expression"
+                },
+                "folderPath": "01-bronze/landing",
+                "fileSystem": "datalake"
+            },
+            "columnDelimiter": ",",
+            "escapeChar": "\\",
+            "quoteChar": "\"",
+            "firstRowAsHeader": true
+        },
+        "parameters": {
+            "FileName": {
+                "type": "String",
+                "defaultValue": ""
+            }
+        },
+        "schema": [],
+        "annotations": [
+            "bronze-layer",
+            "raw-ingestion"
+        ]
+    }
+}

@@ -1,0 +1,22 @@
+{
+    "name": "ls_azure_sql",
+    "type": "Microsoft.DataFactory/factories/linkedservices",
+    "properties": {
+        "description": "Azure SQL Database — Gold Layer serving tier (Basic DTU, 5 DTU / 2GB)",
+        "type": "AzureSqlDatabase",
+        "typeProperties": {
+            "connectionString": {
+                "type": "AzureKeyVaultSecret",
+                "store": {
+                    "referenceName": "ls_key_vault",
+                    "type": "LinkedServiceReference"
+                },
+                "secretName": "sql-connection-string"
+            }
+        },
+        "annotations": [
+            "gold-layer",
+            "basic-dtu-tier"
+        ]
+    }
+}

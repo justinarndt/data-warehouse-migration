@@ -1,0 +1,99 @@
+name: CI — Validate Pipeline Artifacts
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate-python:
+    name: Validate Python Scripts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r src/python/requirements.txt
+          pip install flake8
+
+      - name: Lint with flake8
+        run: |
+          # Stop build on syntax errors or undefined names
+          flake8 src/python/ --count --select=E9,F63,F7,F82 --show-source --statistics
+          # Treat all other issues as warnings
+          flake8 src/python/ --count --exit-zero --max-complexity=10 --max-line-length=120 --statistics
+
+      - name: Run data generation script (smoke test)
+        run: |
+          python src/python/generate_jde_data.py
+          # Verify output files exist
+          test -f data/F0101.csv && echo "✓ F0101.csv generated" || exit 1
+          test -f data/F4211.csv && echo "✓ F4211.csv generated" || exit 1
+
+  validate-sql:
+    name: Validate SQL Scripts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check SQL files exist and are non-empty
+        run: |
+          for f in sql_scripts/*.sql; do
+            if [ ! -s "$f" ]; then
+              echo "ERROR: $f is empty or missing"
+              exit 1
+            fi
+            echo "✓ $f is valid (non-empty)"
+          done
+
+  validate-adf-json:
+    name: Validate ADF JSON Definitions
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate JSON syntax
+        run: |
+          echo "Validating ADF JSON artifacts..."
+          find adf/ -name "*.json" -type f | while read f; do
+            python -m json.tool "$f" > /dev/null 2>&1
+            if [ $? -ne 0 ]; then
+              echo "ERROR: Invalid JSON in $f"
+              exit 1
+            fi
+            echo "✓ $f — valid JSON"
+          done
+
+      - name: Verify required ADF components exist
+        run: |
+          # Linked Services
+          test -f adf/linkedService/ls_adls_gen2.json && echo "✓ ADLS Linked Service"
+          test -f adf/linkedService/ls_azure_sql.json && echo "✓ SQL Linked Service"
+          test -f adf/linkedService/ls_key_vault.json && echo "✓ Key Vault Linked Service"
+
+          # Datasets
+          test -f adf/dataset/ds_bronze_csv.json && echo "✓ Bronze CSV Dataset"
+          test -f adf/dataset/ds_bronze_parquet.json && echo "✓ Bronze Parquet Dataset"
+          test -f adf/dataset/ds_silver_parquet.json && echo "✓ Silver Parquet Dataset"
+          test -f adf/dataset/ds_gold_sql.json && echo "✓ Gold SQL Dataset"
+
+          # Pipelines
+          test -f adf/pipeline/PL_Ingest_Bronze.json && echo "✓ Bronze Pipeline"
+          test -f adf/pipeline/PL_Transform_Silver.json && echo "✓ Silver Pipeline"
+          test -f adf/pipeline/PL_Load_Gold.json && echo "✓ Gold Pipeline"
+          test -f adf/pipeline/PL_Master.json && echo "✓ Master Pipeline"
+
+          # Data Flows
+          test -f adf/dataflow/DF_Clean_JDE.json && echo "✓ JDE Decoder Data Flow"
+          test -f adf/dataflow/DF_SCD2_Customer.json && echo "✓ SCD2 Customer Data Flow"

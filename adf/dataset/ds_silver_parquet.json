@@ -1,0 +1,34 @@
+{
+    "name": "ds_silver_parquet",
+    "type": "Microsoft.DataFactory/factories/datasets",
+    "properties": {
+        "description": "Parquet dataset for the Silver (enriched/cleansed) layer",
+        "type": "Parquet",
+        "linkedServiceName": {
+            "referenceName": "ls_adls_gen2",
+            "type": "LinkedServiceReference"
+        },
+        "typeProperties": {
+            "location": {
+                "type": "AzureBlobFSLocation",
+                "folderPath": {
+                    "value": "@concat('02-silver/', dataset().DomainPath)",
+                    "type": "Expression"
+                },
+                "fileSystem": "datalake"
+            },
+            "compressionCodec": "snappy"
+        },
+        "parameters": {
+            "DomainPath": {
+                "type": "String",
+                "defaultValue": "sales/transactions"
+            }
+        },
+        "schema": [],
+        "annotations": [
+            "silver-layer",
+            "cleansed"
+        ]
+    }
+}

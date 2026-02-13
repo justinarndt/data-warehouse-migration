@@ -1,0 +1,12 @@
+[
+    {
+        "sourceFile": "F0101.csv",
+        "sinkPath": "jde/F0101",
+        "description": "Address Book Master — Customer Dimension source"
+    },
+    {
+        "sourceFile": "F4211.csv",
+        "sinkPath": "jde/F4211",
+        "description": "Sales Order Detail — Transactional Fact source"
+    }
+]

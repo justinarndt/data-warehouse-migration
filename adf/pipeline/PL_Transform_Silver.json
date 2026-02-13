@@ -1,0 +1,69 @@
+{
+    "name": "PL_Transform_Silver",
+    "type": "Microsoft.DataFactory/factories/pipelines",
+    "properties": {
+        "description": "Silver layer transformation pipeline: executes Data Flows to decode JDE-specific data formats (Julian dates, implicit decimals) and apply SCD Type 2 logic for customer dimension tracking.",
+        "activities": [
+            {
+                "name": "DF_Clean_JDE_Execute",
+                "description": "Executes the JDE decoder data flow — converts Julian dates and normalizes implicit decimal precision",
+                "type": "ExecuteDataFlow",
+                "dependsOn": [],
+                "policy": {
+                    "timeout": "0.01:00:00",
+                    "retry": 1,
+                    "retryIntervalInSeconds": 60
+                },
+                "typeProperties": {
+                    "dataflow": {
+                        "referenceName": "DF_Clean_JDE",
+                        "type": "DataFlowReference"
+                    },
+                    "compute": {
+                        "coreCount": 8,
+                        "computeType": "General"
+                    },
+                    "traceLevel": "Fine",
+                    "runConcurrently": false,
+                    "continueOnError": false
+                }
+            },
+            {
+                "name": "DF_SCD2_Customer_Execute",
+                "description": "Executes the SCD Type 2 data flow for customer dimension — detects changes via SHA256 hashing and manages row versioning",
+                "type": "ExecuteDataFlow",
+                "dependsOn": [
+                    {
+                        "activity": "DF_Clean_JDE_Execute",
+                        "dependencyConditions": [
+                            "Succeeded"
+                        ]
+                    }
+                ],
+                "policy": {
+                    "timeout": "0.01:00:00",
+                    "retry": 1,
+                    "retryIntervalInSeconds": 60
+                },
+                "typeProperties": {
+                    "dataflow": {
+                        "referenceName": "DF_SCD2_Customer",
+                        "type": "DataFlowReference"
+                    },
+                    "compute": {
+                        "coreCount": 8,
+                        "computeType": "General"
+                    },
+                    "traceLevel": "Fine",
+                    "runConcurrently": false,
+                    "continueOnError": false
+                }
+            }
+        ],
+        "annotations": [
+            "silver-layer",
+            "jde-decoder",
+            "scd-type-2"
+        ]
+    }
+}

@@ -12,6 +12,19 @@
 				"type": "AzureBlobFSLocation"
 			}
 		},
-		"schema": {}
+		"schema": {
+			"type": "object",
+			"properties": {
+				"sourceFile": {
+					"type": "string"
+				},
+				"sinkPath": {
+					"type": "string"
+				},
+				"description": {
+					"type": "string"
+				}
+			}
+		}
 	}
 }

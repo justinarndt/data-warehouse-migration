@@ -1,119 +1,122 @@
 {
-    "name": "PL_Ingest_Bronze",
-    "type": "Microsoft.DataFactory/factories/pipelines",
-    "properties": {
-        "description": "Metadata-driven ingestion pipeline: reads source_config.json from the config folder, iterates over each source file, and converts CSV to Parquet with time-based partitioning in the Bronze layer.",
-        "activities": [
-            {
-                "name": "Lookup_SourceConfig",
-                "description": "Reads the metadata-driven configuration file to determine which source files to ingest",
-                "type": "Lookup",
-                "dependsOn": [],
-                "policy": {
-                    "timeout": "0.00:10:00",
-                    "retry": 2,
-                    "retryIntervalInSeconds": 30
-                },
-                "typeProperties": {
-                    "source": {
-                        "type": "JsonSource",
-                        "storeSettings": {
-                            "type": "AzureBlobFSReadSettings",
-                            "recursive": false
-                        },
-                        "formatSettings": {
-                            "type": "JsonReadSettings"
-                        }
-                    },
-                    "dataset": {
-                        "referenceName": "ds_config_json",
-                        "type": "DatasetReference"
-                    },
-                    "firstRowOnly": false
-                }
-            },
-            {
-                "name": "ForEach_SourceFile",
-                "description": "Iterates over each source file defined in the configuration",
-                "type": "ForEach",
-                "dependsOn": [
-                    {
-                        "activity": "Lookup_SourceConfig",
-                        "dependencyConditions": [
-                            "Succeeded"
-                        ]
-                    }
-                ],
-                "typeProperties": {
-                    "isSequential": false,
-                    "batchCount": 4,
-                    "items": {
-                        "value": "@activity('Lookup_SourceConfig').output.value",
-                        "type": "Expression"
-                    },
-                    "activities": [
-                        {
-                            "name": "Copy_CSV_to_Parquet",
-                            "description": "Converts raw CSV to columnar Parquet format with Snappy compression and time partitioning",
-                            "type": "Copy",
-                            "dependsOn": [],
-                            "policy": {
-                                "timeout": "0.01:00:00",
-                                "retry": 2,
-                                "retryIntervalInSeconds": 60
-                            },
-                            "typeProperties": {
-                                "source": {
-                                    "type": "DelimitedTextSource",
-                                    "storeSettings": {
-                                        "type": "AzureBlobFSReadSettings",
-                                        "recursive": false
-                                    },
-                                    "formatSettings": {
-                                        "type": "DelimitedTextReadSettings"
-                                    }
-                                },
-                                "sink": {
-                                    "type": "ParquetSink",
-                                    "storeSettings": {
-                                        "type": "AzureBlobFSWriteSettings"
-                                    },
-                                    "formatSettings": {
-                                        "type": "ParquetWriteSettings"
-                                    }
-                                },
-                                "enableStaging": false
-                            },
-                            "inputs": [
-                                {
-                                    "referenceName": "ds_bronze_csv",
-                                    "type": "DatasetReference",
-                                    "parameters": {
-                                        "FileName": "@item().sourceFile"
-                                    }
-                                }
-                            ],
-                            "outputs": [
-                                {
-                                    "referenceName": "ds_bronze_parquet",
-                                    "type": "DatasetReference",
-                                    "parameters": {
-                                        "TableName": "@item().sinkPath",
-                                        "Year": "@formatDateTime(utcNow(), 'yyyy')",
-                                        "Month": "@formatDateTime(utcNow(), 'MM')",
-                                        "Day": "@formatDateTime(utcNow(), 'dd')"
-                                    }
-                                }
-                            ]
-                        }
-                    ]
-                }
-            }
-        ],
-        "annotations": [
-            "bronze-layer",
-            "metadata-driven",
-            "csv-to-parquet"
-        ]
-    }
+	"name": "PL_Ingest_Bronze",
+	"properties": {
+		"description": "Metadata-driven ingestion pipeline: reads source_config.json from the config folder, iterates over each source file, and converts CSV to Parquet with time-based partitioning in the Bronze layer.",
+		"activities": [
+			{
+				"name": "Lookup_SourceConfig",
+				"description": "Reads the metadata-driven configuration file to determine which source files to ingest",
+				"type": "Lookup",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "0.00:10:00",
+					"retry": 2,
+					"retryIntervalInSeconds": 30
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "JsonSource",
+						"storeSettings": {
+							"type": "AzureBlobFSReadSettings",
+							"recursive": false
+						},
+						"formatSettings": {
+							"type": "JsonReadSettings"
+						}
+					},
+					"dataset": {
+						"referenceName": "ds_config_json",
+						"type": "DatasetReference"
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "ForEach_SourceFile",
+				"description": "Iterates over each source file defined in the configuration",
+				"type": "ForEach",
+				"dependsOn": [
+					{
+						"activity": "Lookup_SourceConfig",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@activity('Lookup_SourceConfig').output.value",
+						"type": "Expression"
+					},
+					"isSequential": false,
+					"batchCount": 4,
+					"activities": [
+						{
+							"name": "Copy_CSV_to_Parquet",
+							"description": "Converts raw CSV to columnar Parquet format with Snappy compression and time partitioning",
+							"type": "Copy",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "0.01:00:00",
+								"retry": 2,
+								"retryIntervalInSeconds": 60
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"source": {
+									"type": "DelimitedTextSource",
+									"storeSettings": {
+										"type": "AzureBlobFSReadSettings",
+										"recursive": false
+									},
+									"formatSettings": {
+										"type": "DelimitedTextReadSettings"
+									}
+								},
+								"sink": {
+									"type": "ParquetSink",
+									"storeSettings": {
+										"type": "AzureBlobFSWriteSettings"
+									},
+									"formatSettings": {
+										"type": "ParquetWriteSettings"
+									}
+								},
+								"enableStaging": false
+							},
+							"inputs": [
+								{
+									"referenceName": "ds_bronze_csv",
+									"type": "DatasetReference",
+									"parameters": {
+										"FileName": "@item().sourceFile"
+									}
+								}
+							],
+							"outputs": [
+								{
+									"referenceName": "ds_bronze_parquet",
+									"type": "DatasetReference",
+									"parameters": {
+										"TableName": "@item().sinkPath",
+										"Year": "@formatDateTime(utcNow(), 'yyyy')",
+										"Month": "@formatDateTime(utcNow(), 'MM')",
+										"Day": "@formatDateTime(utcNow(), 'dd')"
+									}
+								}
+							]
+						}
+					]
+				}
+			}
+		],
+		"annotations": [
+			"bronze-layer",
+			"metadata-driven",
+			"csv-to-parquet"
+		]
+	},
+	"type": "Microsoft.DataFactory/factories/pipelines"
 }

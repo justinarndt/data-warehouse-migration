@@ -14,7 +14,8 @@
 					"referenceName": "ls_key_vault",
 					"type": "LinkedServiceReference"
 				},
-				"secretName": "sql-connection-string"
+				"secretName": "sql-connection-string",
+				"secretVersion": "3881923ea3384d1297f348420d4dbad0"
 			}
 		}
 	},

@@ -1,0 +1,1178 @@
+{
+	"$schema": "http://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+	"contentVersion": "1.0.0.0",
+	"parameters": {
+		"factoryName": {
+			"type": "string",
+			"metadata": "Data Factory name",
+			"defaultValue": "adf-jde-modernization-dev"
+		},
+		"ls_adls_gen2_accountKey": {
+			"type": "secureString",
+			"metadata": "Secure string for 'accountKey' of 'ls_adls_gen2'"
+		},
+		"ls_adls_gen2_properties_typeProperties_url": {
+			"type": "string",
+			"defaultValue": "https://stjdemoddevuswest.dfs.core.windows.net/"
+		},
+		"ls_azure_sql_properties_typeProperties_connectionString_secretName": {
+			"type": "string",
+			"defaultValue": "sql-connection-string"
+		},
+		"ls_key_vault_properties_typeProperties_baseUrl": {
+			"type": "string",
+			"defaultValue": "https://kv-jde-secrets-dev.vault.azure.net/"
+		}
+	},
+	"variables": {
+		"factoryId": "[concat('Microsoft.DataFactory/factories/', parameters('factoryName'))]"
+	},
+	"resources": [
+		{
+			"name": "[concat(parameters('factoryName'), '/PL_Ingest_Bronze')]",
+			"type": "Microsoft.DataFactory/factories/pipelines",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"description": "Metadata-driven ingestion pipeline: reads source_config.json, iterates over each source file, and converts CSV to Parquet with time-based partitioning in the Bronze layer.",
+				"activities": [
+					{
+						"name": "Lookup_SourceConfig",
+						"description": "Reads the metadata-driven configuration file to determine which source files to ingest",
+						"type": "Lookup",
+						"dependsOn": [],
+						"policy": {
+							"timeout": "0.00:10:00",
+							"retry": 2,
+							"retryIntervalInSeconds": 30
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"source": {
+								"type": "JsonSource",
+								"storeSettings": {
+									"type": "AzureBlobFSReadSettings",
+									"recursive": false
+								}
+							},
+							"dataset": {
+								"referenceName": "ds_bronze_csv",
+								"type": "DatasetReference",
+								"parameters": {
+									"FileName": "source_config.json"
+								}
+							},
+							"firstRowOnly": false
+						}
+					},
+					{
+						"name": "ForEach_SourceFile",
+						"description": "Iterates over each source file defined in the configuration",
+						"type": "ForEach",
+						"dependsOn": [
+							{
+								"activity": "Lookup_SourceConfig",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"userProperties": [],
+						"typeProperties": {
+							"items": {
+								"value": "@activity('Lookup_SourceConfig').output.value",
+								"type": "Expression"
+							},
+							"isSequential": false,
+							"batchCount": 4,
+							"activities": [
+								{
+									"name": "Copy_CSV_to_Parquet",
+									"description": "Converts raw CSV to columnar Parquet format with Snappy compression and time partitioning",
+									"type": "Copy",
+									"dependsOn": [],
+									"policy": {
+										"timeout": "0.01:00:00",
+										"retry": 2,
+										"retryIntervalInSeconds": 60
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"source": {
+											"type": "DelimitedTextSource",
+											"storeSettings": {
+												"type": "AzureBlobFSReadSettings",
+												"recursive": false
+											},
+											"formatSettings": {
+												"type": "DelimitedTextReadSettings"
+											}
+										},
+										"sink": {
+											"type": "ParquetSink",
+											"storeSettings": {
+												"type": "AzureBlobFSWriteSettings"
+											},
+											"formatSettings": {
+												"type": "ParquetWriteSettings"
+											}
+										},
+										"enableStaging": false
+									},
+									"inputs": [
+										{
+											"referenceName": "ds_bronze_csv",
+											"type": "DatasetReference",
+											"parameters": {
+												"FileName": "@item().sourceFile"
+											}
+										}
+									],
+									"outputs": [
+										{
+											"referenceName": "ds_bronze_parquet",
+											"type": "DatasetReference",
+											"parameters": {
+												"TableName": "@item().sinkPath",
+												"Year": "@formatDateTime(utcNow(), 'yyyy')",
+												"Month": "@formatDateTime(utcNow(), 'MM')",
+												"Day": "@formatDateTime(utcNow(), 'dd')"
+											}
+										}
+									]
+								}
+							]
+						}
+					}
+				],
+				"policy": {
+					"elapsedTimeMetric": {}
+				},
+				"annotations": [
+					"bronze-layer",
+					"metadata-driven",
+					"csv-to-parquet"
+				]
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/datasets/ds_bronze_csv')]",
+				"[concat(variables('factoryId'), '/datasets/ds_bronze_parquet')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/PL_Load_Gold')]",
+			"type": "Microsoft.DataFactory/factories/pipelines",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"description": "Gold layer loading pipeline: performs point-in-time joins between Silver transactions and the SCD2 customer dimension to load the star schema Fact_Sales table with correct surrogate keys.",
+				"activities": [
+					{
+						"name": "DF_Load_FactSales",
+						"description": "Joins Silver F4211 with Dim_Customer using point-in-time logic and loads into Gold.Fact_Sales",
+						"type": "ExecuteDataFlow",
+						"dependsOn": [],
+						"policy": {
+							"timeout": "0.01:00:00",
+							"retry": 1,
+							"retryIntervalInSeconds": 60
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"dataflow": {
+								"referenceName": "DF_Load_FactSales",
+								"type": "DataFlowReference",
+								"parameters": {},
+								"datasetParameters": {
+									"SilverTransactions": {
+										"DomainPath": "sales/transactions"
+									},
+									"DimCustomer": {
+										"SchemaName": "Gold",
+										"TableName": "Dim_Customer"
+									},
+									"DimDate": {
+										"SchemaName": "Gold",
+										"TableName": "Dim_Date"
+									},
+									"FactSalesSink": {
+										"SchemaName": "Gold",
+										"TableName": "Fact_Sales"
+									}
+								}
+							},
+							"staging": {},
+							"compute": {
+								"coreCount": 8,
+								"computeType": "General"
+							},
+							"traceLevel": "Fine"
+						}
+					}
+				],
+				"policy": {
+					"elapsedTimeMetric": {}
+				},
+				"annotations": [
+					"gold-layer",
+					"star-schema",
+					"fact-table-load"
+				]
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/dataflows/DF_Load_FactSales')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/PL_Master')]",
+			"type": "Microsoft.DataFactory/factories/pipelines",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"description": "Master orchestrator pipeline: sequentially executes Bronze → Silver → Gold pipelines with centralized error handling via Azure Logic Apps for real-time failure notifications.",
+				"activities": [
+					{
+						"name": "Execute_Bronze",
+						"description": "Execute the Bronze layer ingestion pipeline (CSV → Parquet)",
+						"type": "ExecutePipeline",
+						"dependsOn": [],
+						"policy": {
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"pipeline": {
+								"referenceName": "PL_Ingest_Bronze",
+								"type": "PipelineReference"
+							},
+							"waitOnCompletion": true,
+							"parameters": {}
+						}
+					},
+					{
+						"name": "Execute_Silver",
+						"description": "Execute the Silver layer transformation pipeline (JDE decoding + SCD2)",
+						"type": "ExecutePipeline",
+						"dependsOn": [
+							{
+								"activity": "Execute_Bronze",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"policy": {
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"pipeline": {
+								"referenceName": "PL_Transform_Silver",
+								"type": "PipelineReference"
+							},
+							"waitOnCompletion": true,
+							"parameters": {}
+						}
+					},
+					{
+						"name": "Execute_Gold",
+						"description": "Execute the Gold layer loading pipeline (star schema fact load)",
+						"type": "ExecutePipeline",
+						"dependsOn": [
+							{
+								"activity": "Execute_Silver",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"policy": {
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"pipeline": {
+								"referenceName": "PL_Load_Gold",
+								"type": "PipelineReference"
+							},
+							"waitOnCompletion": true,
+							"parameters": {}
+						}
+					},
+					{
+						"name": "OnFailure_Bronze_Alert",
+						"description": "Sends failure notification to Logic App when Bronze ingestion fails",
+						"type": "WebActivity",
+						"dependsOn": [
+							{
+								"activity": "Execute_Bronze",
+								"dependencyConditions": [
+									"Failed"
+								]
+							}
+						],
+						"policy": {
+							"timeout": "0.00:05:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"method": "POST",
+							"headers": {
+								"Content-Type": "application/json"
+							},
+							"url": {
+								"value": "@pipeline().parameters.LogicAppAlertUrl",
+								"type": "Expression"
+							},
+							"body": {
+								"value": "{\"message\": \"@{activity('Execute_Bronze').output.message}\", \"pipeline\": \"@{pipeline().Pipeline}\", \"runId\": \"@{pipeline().RunId}\", \"stage\": \"Bronze\", \"timestamp\": \"@{utcNow()}\"}",
+								"type": "Expression"
+							}
+						}
+					},
+					{
+						"name": "OnFailure_Silver_Alert",
+						"description": "Sends failure notification to Logic App when Silver transformation fails",
+						"type": "WebActivity",
+						"dependsOn": [
+							{
+								"activity": "Execute_Silver",
+								"dependencyConditions": [
+									"Failed"
+								]
+							}
+						],
+						"policy": {
+							"timeout": "0.00:05:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"method": "POST",
+							"headers": {
+								"Content-Type": "application/json"
+							},
+							"url": {
+								"value": "@pipeline().parameters.LogicAppAlertUrl",
+								"type": "Expression"
+							},
+							"body": {
+								"value": "{\"message\": \"@{activity('Execute_Silver').output.message}\", \"pipeline\": \"@{pipeline().Pipeline}\", \"runId\": \"@{pipeline().RunId}\", \"stage\": \"Silver\", \"timestamp\": \"@{utcNow()}\"}",
+								"type": "Expression"
+							}
+						}
+					},
+					{
+						"name": "OnFailure_Gold_Alert",
+						"description": "Sends failure notification to Logic App when Gold loading fails",
+						"type": "WebActivity",
+						"dependsOn": [
+							{
+								"activity": "Execute_Gold",
+								"dependencyConditions": [
+									"Failed"
+								]
+							}
+						],
+						"policy": {
+							"timeout": "0.00:05:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"method": "POST",
+							"headers": {
+								"Content-Type": "application/json"
+							},
+							"url": {
+								"value": "@pipeline().parameters.LogicAppAlertUrl",
+								"type": "Expression"
+							},
+							"body": {
+								"value": "{\"message\": \"@{activity('Execute_Gold').output.message}\", \"pipeline\": \"@{pipeline().Pipeline}\", \"runId\": \"@{pipeline().RunId}\", \"stage\": \"Gold\", \"timestamp\": \"@{utcNow()}\"}",
+								"type": "Expression"
+							}
+						}
+					}
+				],
+				"policy": {
+					"elapsedTimeMetric": {}
+				},
+				"parameters": {
+					"LogicAppAlertUrl": {
+						"type": "String",
+						"defaultValue": "https://prod-xx.eastus.logic.azure.com:443/workflows/YOUR_LOGIC_APP_ID/triggers/manual/paths/invoke"
+					}
+				},
+				"annotations": [
+					"master-orchestrator",
+					"error-handling",
+					"logic-apps-integration"
+				]
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/pipelines/PL_Ingest_Bronze')]",
+				"[concat(variables('factoryId'), '/pipelines/PL_Transform_Silver')]",
+				"[concat(variables('factoryId'), '/pipelines/PL_Load_Gold')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/PL_Transform_Silver')]",
+			"type": "Microsoft.DataFactory/factories/pipelines",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"description": "Silver layer transformation pipeline: executes Data Flows to decode JDE-specific data formats (Julian dates, implicit decimals) and apply SCD Type 2 logic for customer dimension tracking.",
+				"activities": [
+					{
+						"name": "DF_Clean_JDE_Execute",
+						"description": "Executes the JDE decoder data flow — converts Julian dates and normalizes implicit decimal precision",
+						"type": "ExecuteDataFlow",
+						"dependsOn": [],
+						"policy": {
+							"timeout": "0.01:00:00",
+							"retry": 1,
+							"retryIntervalInSeconds": 60
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"dataflow": {
+								"referenceName": "DF_Clean_JDE",
+								"type": "DataFlowReference",
+								"parameters": {},
+								"datasetParameters": {
+									"BronzeF4211": {
+										"TableName": "F4211",
+										"Year": {
+											"value": "@formatDateTime(utcNow(), 'yyyy')",
+											"type": "Expression"
+										},
+										"Month": {
+											"value": "@formatDateTime(utcNow(), 'MM')",
+											"type": "Expression"
+										},
+										"Day": {
+											"value": "@formatDateTime(utcNow(), 'dd')",
+											"type": "Expression"
+										}
+									},
+									"SilverTransactions": {
+										"DomainPath": "sales/transactions"
+									}
+								}
+							},
+							"staging": {},
+							"compute": {
+								"coreCount": 8,
+								"computeType": "General"
+							},
+							"traceLevel": "Fine"
+						}
+					},
+					{
+						"name": "DF_SCD2_Customer_Execute",
+						"description": "Executes the SCD Type 2 data flow for customer dimension — detects changes via SHA256 hashing and manages row versioning",
+						"type": "ExecuteDataFlow",
+						"dependsOn": [
+							{
+								"activity": "DF_Clean_JDE_Execute",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"policy": {
+							"timeout": "0.01:00:00",
+							"retry": 1,
+							"retryIntervalInSeconds": 60
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"dataflow": {
+								"referenceName": "DF_SCD2_Customer",
+								"type": "DataFlowReference",
+								"parameters": {},
+								"datasetParameters": {
+									"NewCustomerData": {
+										"TableName": "F0101",
+										"Year": {
+											"value": "@formatDateTime(utcNow(), 'yyyy')",
+											"type": "Expression"
+										},
+										"Month": {
+											"value": "@formatDateTime(utcNow(), 'MM')",
+											"type": "Expression"
+										},
+										"Day": {
+											"value": "@formatDateTime(utcNow(), 'dd')",
+											"type": "Expression"
+										}
+									},
+									"ExistingDimCustomer": {
+										"SchemaName": "Gold",
+										"TableName": "Dim_Customer"
+									},
+									"UpdateExpiredRows": {
+										"SchemaName": "Gold",
+										"TableName": "Dim_Customer"
+									},
+									"InsertNewVersions": {
+										"SchemaName": "Gold",
+										"TableName": "Dim_Customer"
+									}
+								}
+							},
+							"staging": {},
+							"compute": {
+								"coreCount": 8,
+								"computeType": "General"
+							},
+							"traceLevel": "Fine"
+						}
+					}
+				],
+				"policy": {
+					"elapsedTimeMetric": {}
+				},
+				"annotations": [
+					"silver-layer",
+					"jde-decoder",
+					"scd-type-2"
+				]
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/dataflows/DF_Clean_JDE')]",
+				"[concat(variables('factoryId'), '/dataflows/DF_SCD2_Customer')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/ds_bronze_csv')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"description": "Parameterized DelimitedText dataset for raw CSV files in the Bronze landing zone",
+				"linkedServiceName": {
+					"referenceName": "ls_adls_gen2",
+					"type": "LinkedServiceReference"
+				},
+				"parameters": {
+					"FileName": {
+						"type": "String"
+					}
+				},
+				"annotations": [
+					"bronze-layer",
+					"raw-ingestion"
+				],
+				"type": "DelimitedText",
+				"typeProperties": {
+					"location": {
+						"type": "AzureBlobFSLocation",
+						"fileName": {
+							"value": "@dataset().FileName",
+							"type": "Expression"
+						},
+						"folderPath": "01-bronze/landing",
+						"fileSystem": "datalake"
+					},
+					"columnDelimiter": ",",
+					"escapeChar": "\\",
+					"firstRowAsHeader": true,
+					"quoteChar": "\""
+				},
+				"schema": []
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/ls_adls_gen2')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/ds_bronze_parquet')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"description": "Parameterized Parquet dataset for structured Bronze layer storage with time partitioning",
+				"linkedServiceName": {
+					"referenceName": "ls_adls_gen2",
+					"type": "LinkedServiceReference"
+				},
+				"parameters": {
+					"TableName": {
+						"type": "String"
+					},
+					"Year": {
+						"type": "String"
+					},
+					"Month": {
+						"type": "String"
+					},
+					"Day": {
+						"type": "String"
+					}
+				},
+				"annotations": [
+					"bronze-layer",
+					"parquet",
+					"time-partitioned"
+				],
+				"type": "Parquet",
+				"typeProperties": {
+					"location": {
+						"type": "AzureBlobFSLocation",
+						"folderPath": {
+							"value": "@concat('01-bronze/jde/', dataset().TableName, '/', dataset().Year, '/', dataset().Month, '/', dataset().Day)",
+							"type": "Expression"
+						},
+						"fileSystem": "datalake"
+					},
+					"compressionCodec": "snappy"
+				},
+				"schema": []
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/ls_adls_gen2')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/ds_gold_sql')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"description": "Azure SQL dataset for Gold layer star schema tables (Dim_Customer, Dim_Date, Fact_Sales)",
+				"linkedServiceName": {
+					"referenceName": "ls_azure_sql",
+					"type": "LinkedServiceReference"
+				},
+				"parameters": {
+					"SchemaName": {
+						"type": "String",
+						"defaultValue": "Gold"
+					},
+					"TableName": {
+						"type": "String"
+					}
+				},
+				"annotations": [
+					"gold-layer",
+					"star-schema"
+				],
+				"type": "AzureSqlTable",
+				"schema": [],
+				"typeProperties": {
+					"schema": {
+						"value": "@dataset().SchemaName",
+						"type": "Expression"
+					},
+					"table": {
+						"value": "@dataset().TableName",
+						"type": "Expression"
+					}
+				}
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/ls_azure_sql')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/ds_silver_parquet')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"description": "Parquet dataset for the Silver (enriched/cleansed) layer",
+				"linkedServiceName": {
+					"referenceName": "ls_adls_gen2",
+					"type": "LinkedServiceReference"
+				},
+				"parameters": {
+					"DomainPath": {
+						"type": "String",
+						"defaultValue": "sales/transactions"
+					}
+				},
+				"annotations": [
+					"silver-layer",
+					"cleansed"
+				],
+				"type": "Parquet",
+				"typeProperties": {
+					"location": {
+						"type": "AzureBlobFSLocation",
+						"folderPath": {
+							"value": "@concat('02-silver/', dataset().DomainPath)",
+							"type": "Expression"
+						},
+						"fileSystem": "datalake"
+					},
+					"compressionCodec": "snappy"
+				},
+				"schema": []
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/ls_adls_gen2')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/ls_adls_gen2')]",
+			"type": "Microsoft.DataFactory/factories/linkedServices",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"description": "Azure Data Lake Storage Gen2 — Medallion Architecture storage (Bronze/Silver/Gold layers)",
+				"annotations": [
+					"medallion-architecture",
+					"jde-modernization"
+				],
+				"type": "AzureBlobFS",
+				"typeProperties": {
+					"url": "[parameters('ls_adls_gen2_properties_typeProperties_url')]",
+					"accountKey": {
+						"type": "SecureString",
+						"value": "[parameters('ls_adls_gen2_accountKey')]"
+					}
+				}
+			},
+			"dependsOn": []
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/ls_azure_sql')]",
+			"type": "Microsoft.DataFactory/factories/linkedServices",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"description": "Azure SQL Database — Gold Layer serving tier (Basic DTU, 5 DTU / 2GB)",
+				"annotations": [
+					"gold-layer",
+					"basic-dtu-tier"
+				],
+				"type": "AzureSqlDatabase",
+				"typeProperties": {
+					"connectionString": {
+						"type": "AzureKeyVaultSecret",
+						"store": {
+							"referenceName": "ls_key_vault",
+							"type": "LinkedServiceReference"
+						},
+						"secretName": "[parameters('ls_azure_sql_properties_typeProperties_connectionString_secretName')]",
+						"secretVersion": "3881923ea3384d1297f348420d4dbad0"
+					}
+				}
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/ls_key_vault')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/ls_key_vault')]",
+			"type": "Microsoft.DataFactory/factories/linkedServices",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"description": "Azure Key Vault — Centralized secret management for ADLS keys and SQL connection strings",
+				"annotations": [
+					"security",
+					"managed-identity"
+				],
+				"type": "AzureKeyVault",
+				"typeProperties": {
+					"baseUrl": "[parameters('ls_key_vault_properties_typeProperties_baseUrl')]"
+				}
+			},
+			"dependsOn": []
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/DF_Clean_JDE')]",
+			"type": "Microsoft.DataFactory/factories/dataflows",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"description": "Mapping Data Flow to decode JD Edwards data formats: converts Julian dates (CYYDDD to Date) and normalizes implicit decimal precision (integer to actual financial values).",
+				"type": "MappingDataFlow",
+				"typeProperties": {
+					"sources": [
+						{
+							"dataset": {
+								"referenceName": "ds_bronze_parquet",
+								"type": "DatasetReference"
+							},
+							"name": "BronzeF4211",
+							"description": "Raw F4211 Sales Order Detail from Bronze Parquet layer"
+						}
+					],
+					"sinks": [
+						{
+							"dataset": {
+								"referenceName": "ds_silver_parquet",
+								"type": "DatasetReference"
+							},
+							"name": "SilverTransactions",
+							"description": "Cleansed sales transactions written to Silver layer"
+						}
+					],
+					"transformations": [
+						{
+							"name": "DeriveColumns",
+							"description": "Converts JDE Julian dates to ISO dates and normalizes implicit 2-decimal financial values"
+						},
+						{
+							"name": "SelectCleanColumns",
+							"description": "Renames cryptic JDE column names to business-friendly aliases"
+						}
+					],
+					"scriptLines": [
+						"source(output(",
+						"          SDDOCO as integer,",
+						"          SDDCTO as string,",
+						"          SDAN8 as integer,",
+						"          SDLITM as string,",
+						"          SDTRDJ as integer,",
+						"          SDUORG as integer,",
+						"          SDAEXP as integer",
+						"     ),",
+						"     allowSchemaDrift: true,",
+						"     validateSchema: false,",
+						"     ignoreNoFilesFound: false,",
+						"     format: 'parquet') ~> BronzeF4211",
+						"BronzeF4211 derive(OrderDate = addDays(toDate(toString(1900 + toInteger(left(toString(SDTRDJ), 1)) * 100 + toInteger(substring(toString(SDTRDJ), 2, 2))) + '-01-01'), toInteger(right(toString(SDTRDJ), 3)) - 1),",
+						"          ExtendedAmount = toDecimal(SDAEXP) / 100.00,",
+						"          Quantity = toDecimal(SDUORG) / 100.00,",
+						"          UnitPrice = iif(SDUORG != 0, toDecimal(SDAEXP) / toDecimal(SDUORG), toDecimal(0)),",
+						"          DateKey = toInteger(toString(addDays(toDate(toString(1900 + toInteger(left(toString(SDTRDJ), 1)) * 100 + toInteger(substring(toString(SDTRDJ), 2, 2))) + '-01-01'), toInteger(right(toString(SDTRDJ), 3)) - 1), 'yyyyMMdd'))) ~> DeriveColumns",
+						"DeriveColumns select(mapColumn(",
+						"          OrderNumber = SDDOCO,",
+						"          OrderType = SDDCTO,",
+						"          CustomerID = SDAN8,",
+						"          ItemNumber = SDLITM,",
+						"          OrderDate,",
+						"          DateKey,",
+						"          Quantity,",
+						"          ExtendedAmount,",
+						"          UnitPrice",
+						"     ),",
+						"     skipDuplicateMapInputs: false,",
+						"     skipDuplicateMapOutputs: false) ~> SelectCleanColumns",
+						"SelectCleanColumns sink(allowSchemaDrift: true,",
+						"     validateSchema: false,",
+						"     format: 'parquet',",
+						"     truncate: true,",
+						"     umask: 0022,",
+						"     preCommands: [],",
+						"     postCommands: []) ~> SilverTransactions"
+					]
+				}
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/datasets/ds_bronze_parquet')]",
+				"[concat(variables('factoryId'), '/datasets/ds_silver_parquet')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/DF_Load_FactSales')]",
+			"type": "Microsoft.DataFactory/factories/dataflows",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"description": "Loads Gold.Fact_Sales by joining Silver transactions with Dim_Customer (point-in-time) and Dim_Date.",
+				"type": "MappingDataFlow",
+				"typeProperties": {
+					"sources": [
+						{
+							"dataset": {
+								"referenceName": "ds_silver_parquet",
+								"type": "DatasetReference"
+							},
+							"name": "SilverTransactions",
+							"description": "Cleansed sales transactions from Silver layer"
+						},
+						{
+							"dataset": {
+								"referenceName": "ds_gold_sql",
+								"type": "DatasetReference"
+							},
+							"name": "DimCustomer",
+							"description": "Customer dimension from Gold"
+						},
+						{
+							"dataset": {
+								"referenceName": "ds_gold_sql",
+								"type": "DatasetReference"
+							},
+							"name": "DimDate",
+							"description": "Date dimension from Gold"
+						}
+					],
+					"sinks": [
+						{
+							"dataset": {
+								"referenceName": "ds_gold_sql",
+								"type": "DatasetReference"
+							},
+							"name": "FactSalesSink",
+							"description": "Loads into Gold.Fact_Sales"
+						}
+					],
+					"transformations": [
+						{
+							"name": "JoinCustomer",
+							"description": "Equi-join on CustomerID"
+						},
+						{
+							"name": "FilterPointInTime",
+							"description": "Filter to the correct SCD2 version by date range"
+						},
+						{
+							"name": "CastDateKey",
+							"description": "Ensure DateKey is integer type for joining"
+						},
+						{
+							"name": "JoinDate",
+							"description": "Join to Dim_Date on DateKey"
+						},
+						{
+							"name": "SelectFactColumns",
+							"description": "Select columns for Fact_Sales"
+						}
+					],
+					"scriptLines": [
+						"source(output(",
+						"          OrderNumber as integer,",
+						"          OrderType as string,",
+						"          CustomerID as integer,",
+						"          ItemNumber as string,",
+						"          OrderDate as date,",
+						"          DateKey as integer,",
+						"          Quantity as decimal(18,2),",
+						"          ExtendedAmount as decimal(18,2),",
+						"          UnitPrice as decimal(18,2)",
+						"     ),",
+						"     allowSchemaDrift: true,",
+						"     validateSchema: false,",
+						"     ignoreNoFilesFound: false,",
+						"     format: 'parquet') ~> SilverTransactions",
+						"source(output(",
+						"          CustomerKey as integer,",
+						"          CustomerID as integer,",
+						"          IsActive as boolean,",
+						"          ValidFrom as timestamp,",
+						"          ValidTo as timestamp",
+						"     ),",
+						"     allowSchemaDrift: true,",
+						"     validateSchema: false,",
+						"     isolationLevel: 'READ_UNCOMMITTED',",
+						"     format: 'table') ~> DimCustomer",
+						"source(output(",
+						"          DateKey as integer",
+						"     ),",
+						"     allowSchemaDrift: true,",
+						"     validateSchema: false,",
+						"     isolationLevel: 'READ_UNCOMMITTED',",
+						"     format: 'table') ~> DimDate",
+						"SilverTransactions, DimCustomer join(SilverTransactions@CustomerID == DimCustomer@CustomerID,",
+						"     joinType:'left',",
+						"     matchType:'exact',",
+						"     ignoreSpaces: false,",
+						"     broadcast: 'right')~> JoinCustomer",
+						"JoinCustomer filter(isNull(CustomerKey) || (OrderDate >= toDate(ValidFrom) && (isNull(ValidTo) || OrderDate < toDate(ValidTo)))) ~> FilterPointInTime",
+						"FilterPointInTime derive(DateKeyInt = toInteger(DateKey)) ~> CastDateKey",
+						"CastDateKey, DimDate join(DateKeyInt == DimDate@DateKey,",
+						"     joinType:'left',",
+						"     matchType:'exact',",
+						"     ignoreSpaces: false,",
+						"     broadcast: 'right')~> JoinDate",
+						"JoinDate select(mapColumn(",
+						"          CustomerKey,",
+						"          DateKey = DateKeyInt,",
+						"          OrderNumber,",
+						"          OrderType,",
+						"          ItemNumber,",
+						"          Quantity,",
+						"          ExtendedAmount,",
+						"          UnitPrice",
+						"     ),",
+						"     skipDuplicateMapInputs: false,",
+						"     skipDuplicateMapOutputs: false) ~> SelectFactColumns",
+						"SelectFactColumns sink(allowSchemaDrift: true,",
+						"     validateSchema: false,",
+						"     deletable:false,",
+						"     insertable:true,",
+						"     updateable:false,",
+						"     upsertable:false,",
+						"     format: 'table',",
+						"     errorHandlingOption: 'stopOnFirstError') ~> FactSalesSink"
+					]
+				}
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/datasets/ds_silver_parquet')]",
+				"[concat(variables('factoryId'), '/datasets/ds_gold_sql')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/DF_SCD2_Customer')]",
+			"type": "Microsoft.DataFactory/factories/dataflows",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"description": "SCD Type 2 for Customer dimension using SHA256 change detection and row versioning.",
+				"type": "MappingDataFlow",
+				"typeProperties": {
+					"sources": [
+						{
+							"dataset": {
+								"referenceName": "ds_bronze_parquet",
+								"type": "DatasetReference"
+							},
+							"name": "NewCustomerData",
+							"description": "New customer records from Bronze F0101"
+						},
+						{
+							"dataset": {
+								"referenceName": "ds_gold_sql",
+								"type": "DatasetReference"
+							},
+							"name": "ExistingDimCustomer",
+							"description": "Current active rows from Gold.Dim_Customer"
+						}
+					],
+					"sinks": [
+						{
+							"dataset": {
+								"referenceName": "ds_gold_sql",
+								"type": "DatasetReference"
+							},
+							"name": "UpdateExpiredRows",
+							"description": "Expires old rows by setting IsActive=0"
+						},
+						{
+							"dataset": {
+								"referenceName": "ds_gold_sql",
+								"type": "DatasetReference"
+							},
+							"name": "InsertNewVersions",
+							"description": "Inserts new and changed customer rows"
+						}
+					],
+					"transformations": [
+						{
+							"name": "HashNewData",
+							"description": "SHA256 hash of business columns in new data"
+						},
+						{
+							"name": "HashExistingData",
+							"description": "SHA256 hash of business columns in existing data"
+						},
+						{
+							"name": "LookupExisting",
+							"description": "Match new to existing on business key"
+						},
+						{
+							"name": "SplitByChangeStatus",
+							"description": "Route to NewRecords, ChangedRecords, NoChange"
+						},
+						{
+							"name": "SetExpiredColumns",
+							"description": "Set IsActive=false and ValidTo for expired rows"
+						},
+						{
+							"name": "MarkForUpdate",
+							"description": "Mark rows for update operation"
+						},
+						{
+							"name": "UnionForInsert",
+							"description": "Combine new and changed records for insertion"
+						},
+						{
+							"name": "SetInsertColumns",
+							"description": "Map columns for the insert sink"
+						},
+						{
+							"name": "MarkForInsert",
+							"description": "Mark rows for insert operation"
+						}
+					],
+					"scriptLines": [
+						"source(output(",
+						"          ABAN8 as integer,",
+						"          ABALPH as string,",
+						"          ABAT1 as string,",
+						"          ABAC01 as string,",
+						"          ABUPMJ as integer",
+						"     ),",
+						"     allowSchemaDrift: true,",
+						"     validateSchema: false,",
+						"     ignoreNoFilesFound: false,",
+						"     format: 'parquet') ~> NewCustomerData",
+						"source(output(",
+						"          CustomerKey as integer,",
+						"          CustomerID as integer,",
+						"          CustomerName as string,",
+						"          SearchType as string,",
+						"          CategoryCode as string,",
+						"          IsActive as boolean,",
+						"          ValidFrom as timestamp,",
+						"          ValidTo as timestamp,",
+						"          RowHash as string",
+						"     ),",
+						"     allowSchemaDrift: true,",
+						"     validateSchema: false,",
+						"     isolationLevel: 'READ_UNCOMMITTED',",
+						"     format: 'table') ~> ExistingDimCustomer",
+						"NewCustomerData derive(NewHash = sha2(256, ABALPH, ABAT1, ABAC01)) ~> HashNewData",
+						"ExistingDimCustomer derive(ExistingHash = sha2(256, CustomerName, SearchType, CategoryCode)) ~> HashExistingData",
+						"HashNewData, HashExistingData lookup(ABAN8 == CustomerID,",
+						"     multiple: false,",
+						"     pickup: 'any',",
+						"     broadcast: 'right')~> LookupExisting",
+						"LookupExisting split(isNull(CustomerKey),",
+						"     !isNull(CustomerKey) && NewHash != ExistingHash,",
+						"     disjoint: false) ~> SplitByChangeStatus@(NewRecords, ChangedRecords, NoChange)",
+						"SplitByChangeStatus@ChangedRecords derive(IsActive = toBoolean('false'),",
+						"          ValidTo = currentUTC(),",
+						"          ModifiedDate = currentUTC()) ~> SetExpiredColumns",
+						"SetExpiredColumns alterRow(updateIf: toBoolean('true')) ~> MarkForUpdate",
+						"SplitByChangeStatus@NewRecords, SplitByChangeStatus@ChangedRecords union(byName: true)~> UnionForInsert",
+						"UnionForInsert select(mapColumn(",
+						"          CustomerID = ABAN8,",
+						"          CustomerName = ABALPH,",
+						"          SearchType = ABAT1,",
+						"          CategoryCode = ABAC01,",
+						"          RowHash = NewHash",
+						"     ),",
+						"     skipDuplicateMapInputs: false,",
+						"     skipDuplicateMapOutputs: false) ~> SetInsertColumns",
+						"SetInsertColumns alterRow(insertIf: toBoolean('true')) ~> MarkForInsert",
+						"MarkForUpdate sink(allowSchemaDrift: true,",
+						"     validateSchema: false,",
+						"     deletable:false,",
+						"     insertable:false,",
+						"     updateable:true,",
+						"     upsertable:false,",
+						"     keys:['CustomerKey'],",
+						"     format: 'table',",
+						"     errorHandlingOption: 'stopOnFirstError',",
+						"     mapColumn(",
+						"          CustomerKey,",
+						"          IsActive,",
+						"          ValidTo,",
+						"          ModifiedDate",
+						"     ),",
+						"     sinkOrder: 1) ~> UpdateExpiredRows",
+						"MarkForInsert sink(allowSchemaDrift: true,",
+						"     validateSchema: false,",
+						"     deletable:false,",
+						"     insertable:true,",
+						"     updateable:false,",
+						"     upsertable:false,",
+						"     format: 'table',",
+						"     errorHandlingOption: 'stopOnFirstError',",
+						"     mapColumn(",
+						"          CustomerID,",
+						"          CustomerName,",
+						"          SearchType,",
+						"          CategoryCode,",
+						"          RowHash",
+						"     ),",
+						"     sinkOrder: 2) ~> InsertNewVersions"
+					]
+				}
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/datasets/ds_bronze_parquet')]",
+				"[concat(variables('factoryId'), '/datasets/ds_gold_sql')]"
+			]
+		}
+	]
+}

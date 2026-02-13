@@ -104,7 +104,7 @@ GO
 PRINT '';
 PRINT '=== VERIFICATION ===';
 
-SELECT 'Dim_Date' AS TableName, COUNT(*) AS RowCount FROM Gold.Dim_Date
+SELECT 'Dim_Date' AS TableName, COUNT(*) AS [RowCount] FROM Gold.Dim_Date
 UNION ALL
 SELECT 'Dim_Customer', COUNT(*) FROM Gold.Dim_Customer
 UNION ALL

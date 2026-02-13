@@ -6,7 +6,7 @@
         "activities": [
             {
                 "name": "DF_Load_FactSales",
-                "description": "Joins Silver F4211 with Dim_Customer using point-in-time logic (OrderDate BETWEEN ValidFrom AND ValidTo) and loads into Gold.Fact_Sales",
+                "description": "Joins Silver F4211 with Dim_Customer using point-in-time logic and loads into Gold.Fact_Sales",
                 "type": "ExecuteDataFlow",
                 "dependsOn": [],
                 "policy": {
@@ -17,7 +17,24 @@
                 "typeProperties": {
                     "dataflow": {
                         "referenceName": "DF_Load_FactSales",
-                        "type": "DataFlowReference"
+                        "type": "DataFlowReference",
+                        "datasetParameters": {
+                            "SilverTransactions": {
+                                "DomainPath": "sales/transactions"
+                            },
+                            "DimCustomer": {
+                                "SchemaName": "Gold",
+                                "TableName": "Dim_Customer"
+                            },
+                            "DimDate": {
+                                "SchemaName": "Gold",
+                                "TableName": "Dim_Date"
+                            },
+                            "FactSalesSink": {
+                                "SchemaName": "Gold",
+                                "TableName": "Fact_Sales"
+                            }
+                        }
                     },
                     "compute": {
                         "coreCount": 8,

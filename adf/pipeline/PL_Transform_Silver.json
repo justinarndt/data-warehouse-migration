@@ -17,7 +17,27 @@
                 "typeProperties": {
                     "dataflow": {
                         "referenceName": "DF_Clean_JDE",
-                        "type": "DataFlowReference"
+                        "type": "DataFlowReference",
+                        "datasetParameters": {
+                            "BronzeF4211": {
+                                "TableName": "F4211",
+                                "Year": {
+                                    "value": "@formatDateTime(utcNow(), 'yyyy')",
+                                    "type": "Expression"
+                                },
+                                "Month": {
+                                    "value": "@formatDateTime(utcNow(), 'MM')",
+                                    "type": "Expression"
+                                },
+                                "Day": {
+                                    "value": "@formatDateTime(utcNow(), 'dd')",
+                                    "type": "Expression"
+                                }
+                            },
+                            "SilverTransactions": {
+                                "DomainPath": "sales/transactions"
+                            }
+                        }
                     },
                     "compute": {
                         "coreCount": 8,
@@ -48,7 +68,36 @@
                 "typeProperties": {
                     "dataflow": {
                         "referenceName": "DF_SCD2_Customer",
-                        "type": "DataFlowReference"
+                        "type": "DataFlowReference",
+                        "datasetParameters": {
+                            "NewCustomerData": {
+                                "TableName": "F0101",
+                                "Year": {
+                                    "value": "@formatDateTime(utcNow(), 'yyyy')",
+                                    "type": "Expression"
+                                },
+                                "Month": {
+                                    "value": "@formatDateTime(utcNow(), 'MM')",
+                                    "type": "Expression"
+                                },
+                                "Day": {
+                                    "value": "@formatDateTime(utcNow(), 'dd')",
+                                    "type": "Expression"
+                                }
+                            },
+                            "ExistingDimCustomer": {
+                                "SchemaName": "Gold",
+                                "TableName": "Dim_Customer"
+                            },
+                            "UpdateExpiredRows": {
+                                "SchemaName": "Gold",
+                                "TableName": "Dim_Customer"
+                            },
+                            "InsertNewVersions": {
+                                "SchemaName": "Gold",
+                                "TableName": "Dim_Customer"
+                            }
+                        }
                     },
                     "compute": {
                         "coreCount": 8,

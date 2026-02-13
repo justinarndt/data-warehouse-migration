@@ -2,7 +2,7 @@
     "name": "DF_Clean_JDE",
     "type": "Microsoft.DataFactory/factories/dataflows",
     "properties": {
-        "description": "Mapping Data Flow to decode JD Edwards data formats: converts Julian dates (CYYDDD → Date) and normalizes implicit decimal precision (integer → actual financial values).",
+        "description": "Mapping Data Flow to decode JD Edwards data formats: converts Julian dates (CYYDDD to Date) and normalizes implicit decimal precision (integer to actual financial values).",
         "type": "MappingDataFlow",
         "typeProperties": {
             "sources": [
@@ -13,7 +13,19 @@
                         "referenceName": "ds_bronze_parquet",
                         "type": "DatasetReference",
                         "parameters": {
-                            "TableName": "jde/F4211"
+                            "TableName": "F4211",
+                            "Year": {
+                                "value": "@formatDateTime(utcNow(), 'yyyy')",
+                                "type": "Expression"
+                            },
+                            "Month": {
+                                "value": "@formatDateTime(utcNow(), 'MM')",
+                                "type": "Expression"
+                            },
+                            "Day": {
+                                "value": "@formatDateTime(utcNow(), 'dd')",
+                                "type": "Expression"
+                            }
                         }
                     }
                 }
@@ -33,12 +45,12 @@
             ],
             "transformations": [
                 {
-                    "name": "DC_Standardize",
-                    "description": "Derived Column: Converts JDE Julian dates (CYYDDD) to ISO dates and normalizes implicit 2-decimal financial values"
+                    "name": "DeriveColumns",
+                    "description": "Converts JDE Julian dates to ISO dates and normalizes implicit 2-decimal financial values"
                 },
                 {
-                    "name": "Select_CleanColumns",
-                    "description": "Select: Renames cryptic JDE column names to business-friendly aliases"
+                    "name": "SelectCleanColumns",
+                    "description": "Renames cryptic JDE column names to business-friendly aliases"
                 }
             ],
             "scriptLines": [
@@ -55,36 +67,14 @@
                 "validateSchema: false) ~> BronzeF4211",
                 "",
                 "BronzeF4211 derive(",
-                "    // Julian Date Conversion: CYYDDD → Date",
-                "    // C=Century (0=1900s, 1=2000s), YY=Year, DDD=Day of Year",
-                "    // Formula: Base year = 1900 + (C * 100) + YY, then add DDD-1 days",
-                "    OrderDate = toDate(",
-                "        toString(",
-                "            1900 + toInteger(substring(toString(SDTRDJ), 1, 1)) * 100 +",
-                "            toInteger(substring(toString(SDTRDJ), 2, 2))",
-                "        ) + '-01-01'",
-                "    ) + days(toInteger(substring(toString(SDTRDJ), 4, 3)) - 1),",
+                "    OrderDate = addDays(toDate(toString(1900 + toInteger(left(toString(SDTRDJ), 1)) * 100 + toInteger(substring(toString(SDTRDJ), 2, 2))) + '-01-01'), toInteger(right(toString(SDTRDJ), 3)) - 1),",
+                "    ExtendedAmount = toDecimal(SDAEXP) / 100.00,",
+                "    Quantity = toDecimal(SDUORG) / 100.00,",
+                "    UnitPrice = iif(SDUORG != 0, toDecimal(SDAEXP) / toDecimal(SDUORG), toDecimal(0)),",
+                "    DateKey = toInteger(toString(addDays(toDate(toString(1900 + toInteger(left(toString(SDTRDJ), 1)) * 100 + toInteger(substring(toString(SDTRDJ), 2, 2))) + '-01-01'), toInteger(right(toString(SDTRDJ), 3)) - 1), 'yyyyMMdd'))",
+                ") ~> DeriveColumns",
                 "",
-                "    // Implicit Decimal Conversion: divide by 100 for 2-decimal precision",
-                "    // E.g., 1050 → $10.50, 250000 → $2,500.00",
-                "    ExtendedAmount = toFloat(SDAEXP) / 100.00,",
-                "",
-                "    // Units also use implicit 2-decimal",
-                "    Quantity = toFloat(SDUORG) / 100.00,",
-                "",
-                "    // Derive unit price from extended amount and quantity",
-                "    UnitPrice = iif(SDUORG != 0, toFloat(SDAEXP) / toFloat(SDUORG), toFloat(0)),",
-                "",
-                "    // Generate DateKey for Gold layer join (YYYYMMDD integer)",
-                "    DateKey = toInteger(toString(toDate(",
-                "        toString(",
-                "            1900 + toInteger(substring(toString(SDTRDJ), 1, 1)) * 100 +",
-                "            toInteger(substring(toString(SDTRDJ), 2, 2))",
-                "        ) + '-01-01'",
-                "    ) + days(toInteger(substring(toString(SDTRDJ), 4, 3)) - 1), 'yyyyMMdd'))",
-                ") ~> DC_Standardize",
-                "",
-                "DC_Standardize select(",
+                "DeriveColumns select(",
                 "    mapColumn(",
                 "        OrderNumber = SDDOCO,",
                 "        OrderType = SDDCTO,",
@@ -96,13 +86,12 @@
                 "        ExtendedAmount,",
                 "        UnitPrice",
                 "    )",
-                ") ~> Select_CleanColumns",
+                ") ~> SelectCleanColumns",
                 "",
-                "Select_CleanColumns sink(",
+                "SelectCleanColumns sink(",
                 "    allowSchemaDrift: true,",
                 "    validateSchema: false,",
                 "    format: 'parquet',",
-                "    umpiActionIfExists: 'overwrite',",
                 "    truncate: true",
                 ") ~> SilverTransactions"
             ]

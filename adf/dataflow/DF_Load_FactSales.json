@@ -1,0 +1,153 @@
+{
+    "name": "DF_Load_FactSales",
+    "type": "Microsoft.DataFactory/factories/dataflows",
+    "properties": {
+        "description": "Mapping Data Flow to load Gold.Fact_Sales star schema table. Joins Silver transactions with Dim_Customer using point-in-time logic and Dim_Date on DateKey.",
+        "type": "MappingDataFlow",
+        "typeProperties": {
+            "sources": [
+                {
+                    "name": "SilverTransactions",
+                    "description": "Cleansed sales transactions from Silver layer",
+                    "dataset": {
+                        "referenceName": "ds_silver_parquet",
+                        "type": "DatasetReference",
+                        "parameters": {
+                            "DomainPath": "sales/transactions"
+                        }
+                    }
+                },
+                {
+                    "name": "DimCustomer",
+                    "description": "Active customer dimension records from Gold",
+                    "dataset": {
+                        "referenceName": "ds_gold_sql",
+                        "type": "DatasetReference",
+                        "parameters": {
+                            "SchemaName": "Gold",
+                            "TableName": "Dim_Customer"
+                        }
+                    }
+                },
+                {
+                    "name": "DimDate",
+                    "description": "Date dimension from Gold",
+                    "dataset": {
+                        "referenceName": "ds_gold_sql",
+                        "type": "DatasetReference",
+                        "parameters": {
+                            "SchemaName": "Gold",
+                            "TableName": "Dim_Date"
+                        }
+                    }
+                }
+            ],
+            "sinks": [
+                {
+                    "name": "FactSalesSink",
+                    "description": "Loads enriched fact records into Gold.Fact_Sales",
+                    "dataset": {
+                        "referenceName": "ds_gold_sql",
+                        "type": "DatasetReference",
+                        "parameters": {
+                            "SchemaName": "Gold",
+                            "TableName": "Fact_Sales"
+                        }
+                    }
+                }
+            ],
+            "transformations": [
+                {
+                    "name": "JoinCustomer",
+                    "description": "Point-in-time join to Dim_Customer using CustomerID and date range"
+                },
+                {
+                    "name": "JoinDate",
+                    "description": "Join to Dim_Date on DateKey"
+                },
+                {
+                    "name": "SelectFactColumns",
+                    "description": "Select only the columns needed for Fact_Sales"
+                }
+            ],
+            "scriptLines": [
+                "source(output(",
+                "    OrderNumber as integer,",
+                "    OrderType as string,",
+                "    CustomerID as integer,",
+                "    ItemNumber as string,",
+                "    OrderDate as date,",
+                "    DateKey as integer,",
+                "    Quantity as decimal(18,2),",
+                "    ExtendedAmount as decimal(18,2),",
+                "    UnitPrice as decimal(18,2)",
+                "),",
+                "allowSchemaDrift: true,",
+                "validateSchema: false) ~> SilverTransactions",
+                "",
+                "source(output(",
+                "    CustomerKey as integer,",
+                "    CustomerID as integer,",
+                "    IsActive as boolean,",
+                "    ValidFrom as timestamp,",
+                "    ValidTo as timestamp",
+                "),",
+                "allowSchemaDrift: false,",
+                "validateSchema: false) ~> DimCustomer",
+                "",
+                "source(output(",
+                "    DateKey as integer",
+                "),",
+                "allowSchemaDrift: false,",
+                "validateSchema: false) ~> DimDate",
+                "",
+                "SilverTransactions, DimCustomer join(",
+                "    SilverTransactions@CustomerID == DimCustomer@CustomerID",
+                "    && OrderDate >= ValidFrom",
+                "    && (isNull(ValidTo) || OrderDate < ValidTo),",
+                "    joinType: 'left',",
+                "    broadcast: 'auto'",
+                ") ~> JoinCustomer",
+                "",
+                "JoinCustomer, DimDate join(",
+                "    JoinCustomer@DateKey == DimDate@DateKey,",
+                "    joinType: 'left',",
+                "    broadcast: 'auto'",
+                ") ~> JoinDate",
+                "",
+                "JoinDate select(",
+                "    mapColumn(",
+                "        CustomerKey,",
+                "        DateKey = JoinCustomer@DateKey,",
+                "        OrderNumber,",
+                "        OrderType,",
+                "        ItemNumber,",
+                "        Quantity,",
+                "        ExtendedAmount,",
+                "        UnitPrice",
+                "    )",
+                ") ~> SelectFactColumns",
+                "",
+                "SelectFactColumns sink(",
+                "    allowSchemaDrift: false,",
+                "    validateSchema: false,",
+                "    deletable: false,",
+                "    insertable: true,",
+                "    updateable: false,",
+                "    upsertable: false,",
+                "    format: 'table',",
+                "    mapColumn(",
+                "        CustomerKey,",
+                "        DateKey,",
+                "        OrderNumber,",
+                "        OrderType,",
+                "        ItemNumber,",
+                "        Quantity,",
+                "        ExtendedAmount,",
+                "        UnitPrice",
+                "    )",
+                ") ~> FactSalesSink"
+            ]
+        }
+    }
+}

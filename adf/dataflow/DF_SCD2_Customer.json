@@ -2,13 +2,13 @@
     "name": "DF_SCD2_Customer",
     "type": "Microsoft.DataFactory/factories/dataflows",
     "properties": {
-        "description": "Mapping Data Flow implementing Slowly Changing Dimensions Type 2 for the Customer dimension. Uses SHA256 hashing for efficient change detection and manages row versioning.",
+        "description": "SCD Type 2 for Customer dimension using SHA256 change detection and row versioning.",
         "type": "MappingDataFlow",
         "typeProperties": {
             "sources": [
                 {
                     "name": "NewCustomerData",
-                    "description": "New/updated customer records from Bronze F0101 Parquet",
+                    "description": "New customer records from Bronze F0101",
                     "dataset": {
                         "referenceName": "ds_bronze_parquet",
                         "type": "DatasetReference",
@@ -31,7 +31,7 @@
                 },
                 {
                     "name": "ExistingDimCustomer",
-                    "description": "Current active records from Gold.Dim_Customer in Azure SQL",
+                    "description": "Current active rows from Gold.Dim_Customer",
                     "dataset": {
                         "referenceName": "ds_gold_sql",
                         "type": "DatasetReference",
@@ -45,7 +45,7 @@
             "sinks": [
                 {
                     "name": "UpdateExpiredRows",
-                    "description": "Updates existing rows: sets IsActive=0 and ValidTo=now() for changed records",
+                    "description": "Expires old rows by setting IsActive=0",
                     "dataset": {
                         "referenceName": "ds_gold_sql",
                         "type": "DatasetReference",
@@ -57,7 +57,7 @@
                 },
                 {
                     "name": "InsertNewVersions",
-                    "description": "Inserts new rows for both brand-new customers and new versions of changed customers",
+                    "description": "Inserts new and changed customer rows",
                     "dataset": {
                         "referenceName": "ds_gold_sql",
                         "type": "DatasetReference",
@@ -71,35 +71,39 @@
             "transformations": [
                 {
                     "name": "HashNewData",
-                    "description": "Creates SHA256 hash of business columns in new data for change detection"
+                    "description": "SHA256 hash of business columns in new data"
                 },
                 {
                     "name": "HashExistingData",
-                    "description": "Creates SHA256 hash of business columns in existing dimension for comparison"
+                    "description": "SHA256 hash of business columns in existing data"
                 },
                 {
                     "name": "LookupExisting",
-                    "description": "Matches new records to existing dimension on business key"
+                    "description": "Match new to existing on business key"
                 },
                 {
                     "name": "SplitByChangeStatus",
-                    "description": "Routes rows into NewRecords, ChangedRecords, or NoChange"
-                },
-                {
-                    "name": "MarkForUpdate",
-                    "description": "Marks changed records for UPDATE"
-                },
-                {
-                    "name": "MarkForInsert",
-                    "description": "Marks new and changed records for INSERT"
+                    "description": "Route to NewRecords, ChangedRecords, NoChange"
                 },
                 {
                     "name": "SetExpiredColumns",
-                    "description": "Sets IsActive=0 and ValidTo=now for expired rows"
+                    "description": "Set IsActive=false and ValidTo for expired rows"
                 },
                 {
-                    "name": "SetNewVersionColumns",
-                    "description": "Sets IsActive=1, ValidFrom=now, ValidTo=null for new versions"
+                    "name": "MarkForUpdate",
+                    "description": "Mark rows for update operation"
+                },
+                {
+                    "name": "UnionForInsert",
+                    "description": "Combine new and changed records for insertion"
+                },
+                {
+                    "name": "SetInsertColumns",
+                    "description": "Map columns for the insert sink"
+                },
+                {
+                    "name": "MarkForInsert",
+                    "description": "Mark rows for insert operation"
                 }
             ],
             "scriptLines": [
@@ -110,7 +114,7 @@
                 "    ABAC01 as string,",
                 "    ABUPMJ as integer",
                 "),",
-                "allowSchemaDrift: false,",
+                "allowSchemaDrift: true,",
                 "validateSchema: false) ~> NewCustomerData",
                 "",
                 "source(output(",
@@ -124,11 +128,11 @@
                 "    ValidTo as timestamp,",
                 "    RowHash as string",
                 "),",
-                "allowSchemaDrift: false,",
+                "allowSchemaDrift: true,",
                 "validateSchema: false) ~> ExistingDimCustomer",
                 "",
                 "NewCustomerData derive(",
-                "    NewHash = sha2(256, columns())",
+                "    NewHash = sha2(256, ABALPH, ABAT1, ABAC01)",
                 ") ~> HashNewData",
                 "",
                 "ExistingDimCustomer derive(",
@@ -138,7 +142,7 @@
                 "HashNewData, HashExistingData lookup(",
                 "    ABAN8 == CustomerID,",
                 "    multiple: false,",
-                "    broadcast: 'auto'",
+                "    broadcast: 'right'",
                 ") ~> LookupExisting",
                 "",
                 "LookupExisting split(",
@@ -147,32 +151,36 @@
                 "    disjoint: false",
                 ") ~> SplitByChangeStatus@(NewRecords, ChangedRecords, NoChange)",
                 "",
-                "SplitByChangeStatus@ChangedRecords alterRow(",
-                "    updateIf: true()",
-                ") ~> MarkForUpdate",
-                "",
-                "SplitByChangeStatus@NewRecords, SplitByChangeStatus@ChangedRecords alterRow(",
-                "    insertIf: true()",
-                ") ~> MarkForInsert",
-                "",
-                "MarkForUpdate derive(",
-                "    IsActive = false(),",
-                "    ValidTo = currentTimestamp(),",
-                "    ModifiedDate = currentTimestamp()",
+                "SplitByChangeStatus@ChangedRecords derive(",
+                "    IsActive = toBoolean('false'),",
+                "    ValidTo = currentUTC(),",
+                "    ModifiedDate = currentUTC()",
                 ") ~> SetExpiredColumns",
                 "",
-                "MarkForInsert derive(",
-                "    CustomerID_out = ABAN8,",
-                "    CustomerName_out = ABALPH,",
-                "    SearchType_out = ABAT1,",
-                "    CategoryCode_out = ABAC01,",
-                "    IsActive_out = true(),",
-                "    ValidFrom_out = currentTimestamp(),",
-                "    RowHash_out = NewHash",
-                ") ~> SetNewVersionColumns",
+                "SetExpiredColumns alterRow(",
+                "    updateIf: toBoolean('true')",
+                ") ~> MarkForUpdate",
                 "",
-                "SetExpiredColumns sink(",
-                "    allowSchemaDrift: false,",
+                "SplitByChangeStatus@NewRecords, SplitByChangeStatus@ChangedRecords union(",
+                "    byName: true",
+                ") ~> UnionForInsert",
+                "",
+                "UnionForInsert select(",
+                "    mapColumn(",
+                "        CustomerID = ABAN8,",
+                "        CustomerName = ABALPH,",
+                "        SearchType = ABAT1,",
+                "        CategoryCode = ABAC01,",
+                "        RowHash = NewHash",
+                "    )",
+                ") ~> SetInsertColumns",
+                "",
+                "SetInsertColumns alterRow(",
+                "    insertIf: toBoolean('true')",
+                ") ~> MarkForInsert",
+                "",
+                "MarkForUpdate sink(",
+                "    allowSchemaDrift: true,",
                 "    validateSchema: false,",
                 "    deletable: false,",
                 "    insertable: false,",
@@ -185,11 +193,12 @@
                 "        IsActive,",
                 "        ValidTo,",
                 "        ModifiedDate",
-                "    )",
+                "    ),",
+                "    sinkOrder: 1",
                 ") ~> UpdateExpiredRows",
                 "",
-                "SetNewVersionColumns sink(",
-                "    allowSchemaDrift: false,",
+                "MarkForInsert sink(",
+                "    allowSchemaDrift: true,",
                 "    validateSchema: false,",
                 "    deletable: false,",
                 "    insertable: true,",
@@ -197,14 +206,13 @@
                 "    upsertable: false,",
                 "    format: 'table',",
                 "    mapColumn(",
-                "        CustomerID = CustomerID_out,",
-                "        CustomerName = CustomerName_out,",
-                "        SearchType = SearchType_out,",
-                "        CategoryCode = CategoryCode_out,",
-                "        IsActive = IsActive_out,",
-                "        ValidFrom = ValidFrom_out,",
-                "        RowHash = RowHash_out",
-                "    )",
+                "        CustomerID,",
+                "        CustomerName,",
+                "        SearchType,",
+                "        CategoryCode,",
+                "        RowHash",
+                "    ),",
+                "    sinkOrder: 2",
                 ") ~> InsertNewVersions"
             ]
         }

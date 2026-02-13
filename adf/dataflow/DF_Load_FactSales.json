@@ -2,7 +2,7 @@
     "name": "DF_Load_FactSales",
     "type": "Microsoft.DataFactory/factories/dataflows",
     "properties": {
-        "description": "Mapping Data Flow to load Gold.Fact_Sales star schema table. Joins Silver transactions with Dim_Customer using point-in-time logic and Dim_Date on DateKey.",
+        "description": "Loads Gold.Fact_Sales by joining Silver transactions with Dim_Customer (point-in-time) and Dim_Date.",
         "type": "MappingDataFlow",
         "typeProperties": {
             "sources": [
@@ -19,7 +19,7 @@
                 },
                 {
                     "name": "DimCustomer",
-                    "description": "Active customer dimension records from Gold",
+                    "description": "Customer dimension from Gold",
                     "dataset": {
                         "referenceName": "ds_gold_sql",
                         "type": "DatasetReference",
@@ -45,7 +45,7 @@
             "sinks": [
                 {
                     "name": "FactSalesSink",
-                    "description": "Loads enriched fact records into Gold.Fact_Sales",
+                    "description": "Loads into Gold.Fact_Sales",
                     "dataset": {
                         "referenceName": "ds_gold_sql",
                         "type": "DatasetReference",
@@ -59,7 +59,15 @@
             "transformations": [
                 {
                     "name": "JoinCustomer",
-                    "description": "Point-in-time join to Dim_Customer using CustomerID and date range"
+                    "description": "Equi-join on CustomerID"
+                },
+                {
+                    "name": "FilterPointInTime",
+                    "description": "Filter to the correct SCD2 version by date range"
+                },
+                {
+                    "name": "CastDateKey",
+                    "description": "Ensure DateKey is integer type for joining"
                 },
                 {
                     "name": "JoinDate",
@@ -67,7 +75,7 @@
                 },
                 {
                     "name": "SelectFactColumns",
-                    "description": "Select only the columns needed for Fact_Sales"
+                    "description": "Select columns for Fact_Sales"
                 }
             ],
             "scriptLines": [
@@ -92,33 +100,39 @@
                 "    ValidFrom as timestamp,",
                 "    ValidTo as timestamp",
                 "),",
-                "allowSchemaDrift: false,",
+                "allowSchemaDrift: true,",
                 "validateSchema: false) ~> DimCustomer",
                 "",
                 "source(output(",
                 "    DateKey as integer",
                 "),",
-                "allowSchemaDrift: false,",
+                "allowSchemaDrift: true,",
                 "validateSchema: false) ~> DimDate",
                 "",
                 "SilverTransactions, DimCustomer join(",
-                "    SilverTransactions@CustomerID == DimCustomer@CustomerID",
-                "    && OrderDate >= ValidFrom",
-                "    && (isNull(ValidTo) || OrderDate < ValidTo),",
+                "    SilverTransactions@CustomerID == DimCustomer@CustomerID,",
                 "    joinType: 'left',",
-                "    broadcast: 'auto'",
+                "    broadcast: 'right'",
                 ") ~> JoinCustomer",
                 "",
-                "JoinCustomer, DimDate join(",
-                "    JoinCustomer@DateKey == DimDate@DateKey,",
+                "JoinCustomer filter(",
+                "    isNull(CustomerKey) || (OrderDate >= toDate(ValidFrom) && (isNull(ValidTo) || OrderDate < toDate(ValidTo)))",
+                ") ~> FilterPointInTime",
+                "",
+                "FilterPointInTime derive(",
+                "    DateKeyInt = toInteger(DateKey)",
+                ") ~> CastDateKey",
+                "",
+                "CastDateKey, DimDate join(",
+                "    DateKeyInt == DimDate@DateKey,",
                 "    joinType: 'left',",
-                "    broadcast: 'auto'",
+                "    broadcast: 'right'",
                 ") ~> JoinDate",
                 "",
                 "JoinDate select(",
                 "    mapColumn(",
                 "        CustomerKey,",
-                "        DateKey = JoinCustomer@DateKey,",
+                "        DateKey = DateKeyInt,",
                 "        OrderNumber,",
                 "        OrderType,",
                 "        ItemNumber,",
@@ -129,23 +143,13 @@
                 ") ~> SelectFactColumns",
                 "",
                 "SelectFactColumns sink(",
-                "    allowSchemaDrift: false,",
+                "    allowSchemaDrift: true,",
                 "    validateSchema: false,",
                 "    deletable: false,",
                 "    insertable: true,",
                 "    updateable: false,",
                 "    upsertable: false,",
-                "    format: 'table',",
-                "    mapColumn(",
-                "        CustomerKey,",
-                "        DateKey,",
-                "        OrderNumber,",
-                "        OrderType,",
-                "        ItemNumber,",
-                "        Quantity,",
-                "        ExtendedAmount,",
-                "        UnitPrice",
-                "    )",
+                "    format: 'table'",
                 ") ~> FactSalesSink"
             ]
         }

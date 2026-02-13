@@ -13,12 +13,12 @@
 ## 📐 Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
+┌────────────────────────────────────────────────────────────────────────────┐
 │                        MEDALLION ARCHITECTURE                              │
-│                                                                             │
+│                                                                            │
 │  ┌──────────┐    ┌──────────────┐    ┌──────────────┐    ┌──────────────┐  │
 │  │          │    │   BRONZE     │    │   SILVER     │    │    GOLD      │  │
-│  │   JDE    │───▶│  Raw CSV →   │───▶│  JDE Decode  │───▶│ Star Schema  │  │
+│  │   JDE    │ ─▶│  Raw CSV →   │─▶  │  JDE Decode  │─▶ │ Star Schema  │  │
 │  │ ERP Data │    │  Parquet     │    │  + SCD Type 2│    │ Fact + Dims  │  │
 │  │ (F0101,  │    │              │    │              │    │              │  │
 │  │  F4211)  │    │  ADLS Gen2   │    │  ADF Data    │    │  Azure SQL   │  │
@@ -29,10 +29,10 @@
 │                                                          │   Power BI /  │ │
 │                                                          │   Tableau     │ │
 │                                                          └───────────────┘ │
-│                                                                             │
+│                                                                            │
 │  Orchestration: Azure Data Factory  │  Monitoring: Logic Apps Alerts       │
-│  Security: Key Vault + Managed Identity  │  Budget: < $200 Azure Credits  │
-└─────────────────────────────────────────────────────────────────────────────┘
+│  Security: Key Vault + Managed Identity  │  Budget: < $200 Azure Credits   │
+└────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ```mermaid

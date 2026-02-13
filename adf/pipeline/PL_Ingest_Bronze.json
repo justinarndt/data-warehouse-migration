@@ -26,11 +26,8 @@
                         }
                     },
                     "dataset": {
-                        "referenceName": "ds_bronze_csv",
-                        "type": "DatasetReference",
-                        "parameters": {
-                            "FileName": "source_config.json"
-                        }
+                        "referenceName": "ds_config_json",
+                        "type": "DatasetReference"
                     },
                     "firstRowOnly": false
                 }

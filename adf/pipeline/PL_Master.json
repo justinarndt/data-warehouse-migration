@@ -2,11 +2,11 @@
     "name": "PL_Master",
     "type": "Microsoft.DataFactory/factories/pipelines",
     "properties": {
-        "description": "Master orchestrator pipeline: sequentially executes Bronze → Silver → Gold pipelines with centralized error handling via Azure Logic Apps for real-time failure notifications.",
+        "description": "Master orchestrator pipeline: sequentially executes Bronze, Silver, Gold pipelines.",
         "activities": [
             {
                 "name": "Execute_Bronze",
-                "description": "Execute the Bronze layer ingestion pipeline (CSV → Parquet)",
+                "description": "Execute the Bronze layer ingestion pipeline (CSV to Parquet)",
                 "type": "ExecutePipeline",
                 "dependsOn": [],
                 "policy": {
@@ -65,111 +65,10 @@
                     },
                     "waitOnCompletion": true
                 }
-            },
-            {
-                "name": "OnFailure_Bronze_Alert",
-                "description": "Sends failure notification to Logic App when Bronze ingestion fails",
-                "type": "WebActivity",
-                "dependsOn": [
-                    {
-                        "activity": "Execute_Bronze",
-                        "dependencyConditions": [
-                            "Failed"
-                        ]
-                    }
-                ],
-                "policy": {
-                    "timeout": "0.00:05:00",
-                    "retry": 0
-                },
-                "typeProperties": {
-                    "url": {
-                        "value": "@pipeline().parameters.LogicAppAlertUrl",
-                        "type": "Expression"
-                    },
-                    "method": "POST",
-                    "headers": {
-                        "Content-Type": "application/json"
-                    },
-                    "body": {
-                        "value": "{\"message\": \"Bronze pipeline failed\", \"pipeline\": \"@{pipeline().Pipeline}\", \"runId\": \"@{activity('Execute_Bronze').output.pipelineRunId}\", \"stage\": \"Bronze\", \"timestamp\": \"@{utcNow()}\"}",
-                        "type": "Expression"
-                    }
-                }
-            },
-            {
-                "name": "OnFailure_Silver_Alert",
-                "description": "Sends failure notification to Logic App when Silver transformation fails",
-                "type": "WebActivity",
-                "dependsOn": [
-                    {
-                        "activity": "Execute_Silver",
-                        "dependencyConditions": [
-                            "Failed"
-                        ]
-                    }
-                ],
-                "policy": {
-                    "timeout": "0.00:05:00",
-                    "retry": 0
-                },
-                "typeProperties": {
-                    "url": {
-                        "value": "@pipeline().parameters.LogicAppAlertUrl",
-                        "type": "Expression"
-                    },
-                    "method": "POST",
-                    "headers": {
-                        "Content-Type": "application/json"
-                    },
-                    "body": {
-                        "value": "{\"message\": \"Silver pipeline failed\", \"pipeline\": \"@{pipeline().Pipeline}\", \"runId\": \"@{activity('Execute_Silver').output.pipelineRunId}\", \"stage\": \"Silver\", \"timestamp\": \"@{utcNow()}\"}",
-                        "type": "Expression"
-                    }
-                }
-            },
-            {
-                "name": "OnFailure_Gold_Alert",
-                "description": "Sends failure notification to Logic App when Gold loading fails",
-                "type": "WebActivity",
-                "dependsOn": [
-                    {
-                        "activity": "Execute_Gold",
-                        "dependencyConditions": [
-                            "Failed"
-                        ]
-                    }
-                ],
-                "policy": {
-                    "timeout": "0.00:05:00",
-                    "retry": 0
-                },
-                "typeProperties": {
-                    "url": {
-                        "value": "@pipeline().parameters.LogicAppAlertUrl",
-                        "type": "Expression"
-                    },
-                    "method": "POST",
-                    "headers": {
-                        "Content-Type": "application/json"
-                    },
-                    "body": {
-                        "value": "{\"message\": \"Gold pipeline failed\", \"pipeline\": \"@{pipeline().Pipeline}\", \"runId\": \"@{activity('Execute_Gold').output.pipelineRunId}\", \"stage\": \"Gold\", \"timestamp\": \"@{utcNow()}\"}",
-                        "type": "Expression"
-                    }
-                }
             }
         ],
-        "parameters": {
-            "LogicAppAlertUrl": {
-                "type": "String",
-                "defaultValue": "https://prod-xx.eastus.logic.azure.com:443/workflows/YOUR_LOGIC_APP_ID/triggers/manual/paths/invoke"
-            }
-        },
         "annotations": [
-            "master-orchestrator",
-            "error-handling",
-            "logic-apps-integration"
+            "master-orchestrator"
         ]
     }
 }

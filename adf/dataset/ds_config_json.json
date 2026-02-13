@@ -9,7 +9,10 @@
 		"type": "Json",
 		"typeProperties": {
 			"location": {
-				"type": "AzureBlobFSLocation"
+				"type": "AzureBlobFSLocation",
+				"fileName": "source_config.json",
+				"folderPath": "01-bronze/landing",
+				"fileSystem": "datalake"
 			}
 		},
 		"schema": {

@@ -1,0 +1,9 @@
+{
+	"name": "adf-jde-modernization-dev",
+	"location": "westus2",
+	"identity": {
+		"type": "SystemAssigned",
+		"principalId": "1e8b8982-4f76-41ea-ac37-881ccff2fc55",
+		"tenantId": "a0b2aba1-1f86-45b0-be7d-bd647a52bfaa"
+	}
+}

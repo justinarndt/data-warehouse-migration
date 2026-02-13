@@ -2,7 +2,7 @@
     "name": "PL_Ingest_Bronze",
     "type": "Microsoft.DataFactory/factories/pipelines",
     "properties": {
-        "description": "Metadata-driven ingestion pipeline: reads source_config.json, iterates over each source file, and converts CSV to Parquet with time-based partitioning in the Bronze layer.",
+        "description": "Metadata-driven ingestion pipeline: reads source_config.json from the config folder, iterates over each source file, and converts CSV to Parquet with time-based partitioning in the Bronze layer.",
         "activities": [
             {
                 "name": "Lookup_SourceConfig",
@@ -20,6 +20,9 @@
                         "storeSettings": {
                             "type": "AzureBlobFSReadSettings",
                             "recursive": false
+                        },
+                        "formatSettings": {
+                            "type": "JsonReadSettings"
                         }
                     },
                     "dataset": {

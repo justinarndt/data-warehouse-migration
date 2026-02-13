@@ -92,7 +92,7 @@
                         "Content-Type": "application/json"
                     },
                     "body": {
-                        "value": "{\"message\": \"@{activity('Execute_Bronze').output.message}\", \"pipeline\": \"@{pipeline().Pipeline}\", \"runId\": \"@{pipeline().RunId}\", \"stage\": \"Bronze\", \"timestamp\": \"@{utcNow()}\"}",
+                        "value": "{\"message\": \"Bronze pipeline failed\", \"pipeline\": \"@{pipeline().Pipeline}\", \"runId\": \"@{activity('Execute_Bronze').output.pipelineRunId}\", \"stage\": \"Bronze\", \"timestamp\": \"@{utcNow()}\"}",
                         "type": "Expression"
                     }
                 }
@@ -123,7 +123,7 @@
                         "Content-Type": "application/json"
                     },
                     "body": {
-                        "value": "{\"message\": \"@{activity('Execute_Silver').output.message}\", \"pipeline\": \"@{pipeline().Pipeline}\", \"runId\": \"@{pipeline().RunId}\", \"stage\": \"Silver\", \"timestamp\": \"@{utcNow()}\"}",
+                        "value": "{\"message\": \"Silver pipeline failed\", \"pipeline\": \"@{pipeline().Pipeline}\", \"runId\": \"@{activity('Execute_Silver').output.pipelineRunId}\", \"stage\": \"Silver\", \"timestamp\": \"@{utcNow()}\"}",
                         "type": "Expression"
                     }
                 }
@@ -154,7 +154,7 @@
                         "Content-Type": "application/json"
                     },
                     "body": {
-                        "value": "{\"message\": \"@{activity('Execute_Gold').output.message}\", \"pipeline\": \"@{pipeline().Pipeline}\", \"runId\": \"@{pipeline().RunId}\", \"stage\": \"Gold\", \"timestamp\": \"@{utcNow()}\"}",
+                        "value": "{\"message\": \"Gold pipeline failed\", \"pipeline\": \"@{pipeline().Pipeline}\", \"runId\": \"@{activity('Execute_Gold').output.pipelineRunId}\", \"stage\": \"Gold\", \"timestamp\": \"@{utcNow()}\"}",
                         "type": "Expression"
                     }
                 }

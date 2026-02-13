@@ -155,6 +155,31 @@
 			]
 		},
 		{
+			"name": "[concat(parameters('factoryName'), '/ds_config_json')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "ls_adls_gen2",
+					"type": "LinkedServiceReference"
+				},
+				"annotations": [],
+				"type": "Json",
+				"typeProperties": {
+					"location": {
+						"type": "AzureBlobFSLocation",
+						"fileName": "source_config.json",
+						"folderPath": "01-bronze/landing",
+						"fileSystem": "datalake"
+					}
+				},
+				"schema": {}
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/ls_adls_gen2')]"
+			]
+		},
+		{
 			"name": "[concat(parameters('factoryName'), '/ds_silver_parquet')]",
 			"type": "Microsoft.DataFactory/factories/datasets",
 			"apiVersion": "2018-06-01",
@@ -224,7 +249,7 @@
 			"type": "Microsoft.DataFactory/factories/pipelines",
 			"apiVersion": "2018-06-01",
 			"properties": {
-				"description": "Metadata-driven ingestion pipeline: reads source_config.json, iterates over each source file, and converts CSV to Parquet with time-based partitioning in the Bronze layer.",
+				"description": "Metadata-driven ingestion pipeline: reads source_config.json from the config folder, iterates over each source file, and converts CSV to Parquet with time-based partitioning in the Bronze layer.",
 				"activities": [
 					{
 						"name": "Lookup_SourceConfig",
@@ -243,14 +268,15 @@
 								"storeSettings": {
 									"type": "AzureBlobFSReadSettings",
 									"recursive": false
+								},
+								"formatSettings": {
+									"type": "JsonReadSettings"
 								}
 							},
 							"dataset": {
-								"referenceName": "ds_bronze_csv",
+								"referenceName": "ds_config_json",
 								"type": "DatasetReference",
-								"parameters": {
-									"FileName": "source_config.json"
-								}
+								"parameters": {}
 							},
 							"firstRowOnly": false
 						}
@@ -345,6 +371,7 @@
 				]
 			},
 			"dependsOn": [
+				"[concat(variables('factoryId'), '/datasets/ds_config_json')]",
 				"[concat(variables('factoryId'), '/datasets/ds_bronze_csv')]",
 				"[concat(variables('factoryId'), '/datasets/ds_bronze_parquet')]"
 			]
@@ -983,11 +1010,11 @@
 			"type": "Microsoft.DataFactory/factories/pipelines",
 			"apiVersion": "2018-06-01",
 			"properties": {
-				"description": "Master orchestrator pipeline: sequentially executes Bronze → Silver → Gold pipelines with centralized error handling via Azure Logic Apps for real-time failure notifications.",
+				"description": "Master orchestrator pipeline: sequentially executes Bronze, Silver, Gold pipelines.",
 				"activities": [
 					{
 						"name": "Execute_Bronze",
-						"description": "Execute the Bronze layer ingestion pipeline (CSV → Parquet)",
+						"description": "Execute the Bronze layer ingestion pipeline (CSV to Parquet)",
 						"type": "ExecutePipeline",
 						"dependsOn": [],
 						"policy": {
@@ -1052,120 +1079,13 @@
 							"waitOnCompletion": true,
 							"parameters": {}
 						}
-					},
-					{
-						"name": "OnFailure_Bronze_Alert",
-						"description": "Sends failure notification to Logic App when Bronze ingestion fails",
-						"type": "WebActivity",
-						"dependsOn": [
-							{
-								"activity": "Execute_Bronze",
-								"dependencyConditions": [
-									"Failed"
-								]
-							}
-						],
-						"policy": {
-							"timeout": "0.00:05:00",
-							"retry": 0,
-							"retryIntervalInSeconds": 30
-						},
-						"userProperties": [],
-						"typeProperties": {
-							"method": "POST",
-							"headers": {
-								"Content-Type": "application/json"
-							},
-							"url": {
-								"value": "@pipeline().parameters.LogicAppAlertUrl",
-								"type": "Expression"
-							},
-							"body": {
-								"value": "{\"message\": \"@{activity('Execute_Bronze').output.message}\", \"pipeline\": \"@{pipeline().Pipeline}\", \"runId\": \"@{pipeline().RunId}\", \"stage\": \"Bronze\", \"timestamp\": \"@{utcNow()}\"}",
-								"type": "Expression"
-							}
-						}
-					},
-					{
-						"name": "OnFailure_Silver_Alert",
-						"description": "Sends failure notification to Logic App when Silver transformation fails",
-						"type": "WebActivity",
-						"dependsOn": [
-							{
-								"activity": "Execute_Silver",
-								"dependencyConditions": [
-									"Failed"
-								]
-							}
-						],
-						"policy": {
-							"timeout": "0.00:05:00",
-							"retry": 0,
-							"retryIntervalInSeconds": 30
-						},
-						"userProperties": [],
-						"typeProperties": {
-							"method": "POST",
-							"headers": {
-								"Content-Type": "application/json"
-							},
-							"url": {
-								"value": "@pipeline().parameters.LogicAppAlertUrl",
-								"type": "Expression"
-							},
-							"body": {
-								"value": "{\"message\": \"@{activity('Execute_Silver').output.message}\", \"pipeline\": \"@{pipeline().Pipeline}\", \"runId\": \"@{pipeline().RunId}\", \"stage\": \"Silver\", \"timestamp\": \"@{utcNow()}\"}",
-								"type": "Expression"
-							}
-						}
-					},
-					{
-						"name": "OnFailure_Gold_Alert",
-						"description": "Sends failure notification to Logic App when Gold loading fails",
-						"type": "WebActivity",
-						"dependsOn": [
-							{
-								"activity": "Execute_Gold",
-								"dependencyConditions": [
-									"Failed"
-								]
-							}
-						],
-						"policy": {
-							"timeout": "0.00:05:00",
-							"retry": 0,
-							"retryIntervalInSeconds": 30
-						},
-						"userProperties": [],
-						"typeProperties": {
-							"method": "POST",
-							"headers": {
-								"Content-Type": "application/json"
-							},
-							"url": {
-								"value": "@pipeline().parameters.LogicAppAlertUrl",
-								"type": "Expression"
-							},
-							"body": {
-								"value": "{\"message\": \"@{activity('Execute_Gold').output.message}\", \"pipeline\": \"@{pipeline().Pipeline}\", \"runId\": \"@{pipeline().RunId}\", \"stage\": \"Gold\", \"timestamp\": \"@{utcNow()}\"}",
-								"type": "Expression"
-							}
-						}
 					}
 				],
 				"policy": {
 					"elapsedTimeMetric": {}
 				},
-				"parameters": {
-					"LogicAppAlertUrl": {
-						"type": "String",
-						"defaultValue": "https://prod-xx.eastus.logic.azure.com:443/workflows/YOUR_LOGIC_APP_ID/triggers/manual/paths/invoke"
-					}
-				},
 				"annotations": [
-					"master-orchestrator",
-					"error-handling",
-					"logic-apps-integration"
+					"master-orchestrator"
 				]
 			},
 			"dependsOn": [

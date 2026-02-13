@@ -12,76 +12,47 @@
 
 ## 📐 Architecture
 
-```
-┌────────────────────────────────────────────────────────────────────────────┐
-│                        MEDALLION ARCHITECTURE                              │
-│                                                                            │
-│  ┌──────────┐    ┌──────────────┐    ┌──────────────┐    ┌──────────────┐  │
-│  │          │    │   BRONZE     │    │   SILVER     │    │    GOLD      │  │
-│  │   JDE    │ ─▶│  Raw CSV →   │─▶  │  JDE Decode  │─▶ │ Star Schema  │  │
-│  │ ERP Data │    │  Parquet     │    │  + SCD Type 2│    │ Fact + Dims  │  │
-│  │ (F0101,  │    │              │    │              │    │              │  │
-│  │  F4211)  │    │  ADLS Gen2   │    │  ADF Data    │    │  Azure SQL   │  │
-│  │          │    │  Partitioned │    │  Flows       │    │  Basic DTU   │  │
-│  └──────────┘    └──────────────┘    └──────────────┘    └──────┬───────┘  │
-│                                                                  │         │
-│                                                          ┌───────▼───────┐ │
-│                                                          │   Power BI /  │ │
-│                                                          │   Tableau     │ │
-│                                                          └───────────────┘ │
-│                                                                            │
-│  Orchestration: Azure Data Factory  │  Monitoring: Logic Apps Alerts       │
-│  Security: Key Vault + Managed Identity  │  Budget: < $200 Azure Credits   │
-└────────────────────────────────────────────────────────────────────────────┘
-```
-
 ```mermaid
 flowchart LR
-    subgraph Source ["🏢 JD Edwards ERP"]
-        F0101["F0101\nAddress Book"]
-        F4211["F4211\nSales Orders"]
+    subgraph Source ["JD Edwards ERP"]
+        F0101["F0101 — Address Book"]
+        F4211["F4211 — Sales Orders"]
     end
 
-    subgraph Bronze ["🥉 Bronze Layer"]
-        direction TB
-        B1["Raw CSV Landing"]
-        B2["Parquet Conversion"]
-        B3["Time Partitioned\nYear/Month/Day"]
-        B1 --> B2 --> B3
+    subgraph Bronze ["Bronze — ADLS Gen2"]
+        B["CSV → Parquet\nSnappy Compression\nTime Partitioned"]
     end
 
-    subgraph Silver ["🥈 Silver Layer"]
-        direction TB
-        S1["Julian Date → ISO Date"]
-        S2["Implicit Decimals → Float"]
-        S3["SCD Type 2\nCustomer History"]
-        S1 --> S2 --> S3
+    subgraph Silver ["Silver — ADF Data Flows"]
+        S1["Julian Date → ISO Date\nImplicit Decimals → Float"]
+        S2["SCD Type 2\nSHA256 Change Detection"]
     end
 
-    subgraph Gold ["🥇 Gold Layer"]
-        direction TB
+    subgraph Gold ["Gold — Azure SQL"]
         G1["Dim_Date"]
-        G2["Dim_Customer\nSCD2"]
+        G2["Dim_Customer"]
         G3["Fact_Sales"]
-        G1 --- G3
-        G2 --- G3
     end
 
-    subgraph Serve ["📊 Analytics"]
-        PBI["Power BI\nDashboards"]
+    subgraph Analytics ["Power BI / Tableau"]
+        BI["Dashboards\n& Reports"]
     end
 
-    F0101 --> B1
-    F4211 --> B1
-    B3 --> S1
-    S3 --> G2
-    S3 --> G3
-    G3 --> PBI
+    F0101 --> B
+    F4211 --> B
+    B --> S1
+    S1 --> S2
+    S2 --> G1 & G2 & G3
+    G3 --> BI
 
-    style Bronze fill:#cd7f32,color:#fff
-    style Silver fill:#c0c0c0,color:#000
-    style Gold fill:#ffd700,color:#000
+    style Source fill:#2d2d2d,color:#fff,stroke:#555
+    style Bronze fill:#cd7f32,color:#fff,stroke:#a0642a
+    style Silver fill:#b0b0b0,color:#000,stroke:#888
+    style Gold fill:#daa520,color:#000,stroke:#b8860b
+    style Analytics fill:#0078d4,color:#fff,stroke:#005a9e
 ```
+
+> **Orchestration:** Azure Data Factory  •  **Security:** Key Vault + Managed Identity  •  **Monitoring:** Logic Apps Alerts  •  **Budget:** < $200 Azure Credits
 
 ---
 
